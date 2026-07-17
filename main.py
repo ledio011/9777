@@ -1,7 +1,6 @@
-import os
 import socket
 
-PORT = int(os.environ.get("PORT", 9777))
+PORT = 9777
 
 server = socket.socket()
 server.bind(("0.0.0.0", PORT))
