@@ -1,306 +1,82 @@
 import socket
+import threading
 import struct
 import random
-import threading
 
 
 PORT = 9777
 
 
-# -------------------------
-# SPROTO SERIALIZER
-# -------------------------
-
-class SprotoSerializer:
-
-    def __init__(self):
-        self.fields = []
-
-    def write_integer(self, tag, value):
-        # small integer
-        self.fields.append((tag, "int", value))
-
-    def write_string(self, tag, value):
-        self.fields.append((tag, "str", value))
-
-
-    def encode(self):
-
-        header = bytearray()
-        body = bytearray()
-
-        header_count = len(self.fields)
-
-        header.extend(struct.pack("<H", header_count))
-
-
-        for tag, typ, value in self.fields:
-
-            if typ == "int":
-
-                # small integer optimization
-                if value < 32767:
-                    data = (value + 1) * 2
-                    header.extend(struct.pack("<H", data))
-                else:
-                    header.extend(struct.pack("<H",0))
-                    body.extend(struct.pack("<I",4))
-                    body.extend(struct.pack("<I",value))
-
-
-            elif typ == "str":
-
-                header.extend(struct.pack("<H",0))
-
-                raw = value.encode()
-
-                body.extend(struct.pack("<I",len(raw)))
-                body.extend(raw)
-
-
-        return bytes(header + body)
-
-
-
-# -------------------------
-# SPROTO PACK
-# -------------------------
-
-def sproto_pack(data):
-
-    out = bytearray()
-
-    for i in range(0,len(data),8):
-
-        chunk=data[i:i+8]
-
-        chunk=chunk.ljust(8,b"\x00")
-
-        mask=0
-        values=[]
-
-        for j,b in enumerate(chunk):
-
-            if b != 0:
-                mask |= (1<<j)
-                values.append(b)
-
-
-        out.append(mask)
-
-        out.extend(values)
-
-
-    return bytes(out)
-
-
-
-# -------------------------
-# CREATE VISITOR RESPONSE
-# -------------------------
-
-def create_visitor_response(session,id,key):
-
-
-    # Package header
-    package=SprotoSerializer()
-
-    # tag 1 = session
-    package.write_integer(1,session)
-
-    package_data=package.encode()
-
-
-
-    # visitor.response
-
-    visitor=SprotoSerializer()
-
-
-    # tag 0 = id
-    visitor.write_string(
-        0,
-        id
-    )
-
-
-    # tag 1 = key
-    visitor.write_string(
-        1,
-        key
-    )
-
-
-    # tag 2 = state
-    visitor.write_integer(
-        2,
-        0
-    )
-
-
-    visitor_data=visitor.encode()
-
-
-
-    final_data = package_data + visitor_data
-
-
-    packed=sproto_pack(final_data)
-
-
-    packet = struct.pack(
-        ">H",
-        len(packed)
-    ) + packed
-
-
-    return packet
-
-
-
-# -------------------------
-# RANDOM ACCOUNT
-# -------------------------
-
-def create_id():
-
-    length=random.randint(15,18)
-
+def create_number(length):
     return "".join(
         random.choice("0123456789")
         for _ in range(length)
     )
 
 
-def create_key():
+def handle_client(client, address):
 
-    length=random.randint(12,15)
-
-    return "".join(
-        random.choice("0123456789")
-        for _ in range(length)
-    )
-
-
-
-# -------------------------
-# SESSION READ
-# -------------------------
-
-def get_session(data):
-
-    try:
-
-        # për paketat që kemi parë
-        # session zakonisht është byte i fundit
-
-        return data[-1]
-
-    except:
-
-        return 1
-
-
-
-# -------------------------
-# CLIENT HANDLER
-# -------------------------
-
-def handle_client(client,address):
-
-    print("[+] Client:",address)
+    print("[+] Client connected:", address)
 
     try:
 
         while True:
 
-            data=client.recv(2048)
+            data = client.recv(4096)
 
 
             if not data:
+                print("[DISCONNECT]", address)
                 break
 
 
-
-            print("RX:",
-                  data.hex())
+            print("RX:", data.hex())
 
 
-
-            # visitor request
+            # Visitor request
             if b"\x15\x02" in data:
 
 
-                session=get_session(data)
+                player_id = create_number(
+                    random.randint(15,18)
+                )
 
-
-                player_id=create_id()
-
-                player_key=create_key()
-
+                player_key = create_number(
+                    random.randint(12,15)
+                )
 
 
                 print("===================")
-                print("ID :",player_id)
-                print("KEY:",player_key)
+                print("ID :", player_id)
+                print("KEY:", player_key)
                 print("===================")
 
 
-
-                response=create_visitor_response(
-                    session,
-                    player_id,
-                    player_key
-                )
+                # Për momentin vetëm ruajmë log.
+                # Këtu do vendosim përgjigjen finale
+                # pasi të kapim paketën e saktë.
 
 
-                print(
-                    "RAW RESPONSE:",
-                    response.hex()
-                )
-
-
-                client.sendall(response)
-
-
-                print(
-                    "visitor.response SENT"
-                )
-
+                print("visitor request detected")
 
 
             else:
 
-                print(
-                    "Unknown packet"
-                )
-
+                print("Unknown packet")
 
 
     except Exception as e:
 
-        print(
-            "ERROR:",
-            e
-        )
+        print("ERROR:", e)
 
 
     finally:
 
         client.close()
 
-        print(
-            "Disconnected",
-            address
-        )
 
 
-
-# -------------------------
-# SERVER START
-# -------------------------
-
-server=socket.socket(
+server = socket.socket(
     socket.AF_INET,
     socket.SOCK_STREAM
 )
@@ -314,7 +90,7 @@ server.setsockopt(
 
 
 server.bind(
-    ("0.0.0.0",PORT)
+    ("0.0.0.0", PORT)
 )
 
 
@@ -329,12 +105,10 @@ print("===================")
 
 while True:
 
-    client,address=server.accept()
+    client, address = server.accept()
 
 
-    t=threading.Thread(
+    threading.Thread(
         target=handle_client,
         args=(client,address)
-    )
-
-    t.start()
+    ).start()
