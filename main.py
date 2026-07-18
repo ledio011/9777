@@ -7,204 +7,195 @@ import random
 PORT = 9777
 
 
-# -----------------------------
-# SPROTO RESPONSE CREATOR
-# -----------------------------
+# =========================
+# SPROTO PACK
+# =========================
 
 def sproto_pack(data):
-
-    out = bytearray()
+    packed = bytearray()
 
     for i in range(0, len(data), 8):
-
         chunk = data[i:i+8]
 
-        chunk = chunk.ljust(8, b"\x00")
+        if len(chunk) < 8:
+            chunk = chunk.ljust(8, b'\x00')
 
         mask = 0
-        values = []
+        values = bytearray()
 
-        for j, b in enumerate(chunk):
-
-            if b != 0:
+        for j in range(8):
+            if chunk[j] != 0:
                 mask |= (1 << j)
-                values.append(b)
+                values.append(chunk[j])
 
-        out.append(mask)
-        out.extend(values)
+        packed.append(mask)
+        packed.extend(values)
 
-    return bytes(out)
+    return bytes(packed)
 
 
+# =========================
+# SPROTO SERIALIZE HELPERS
+# =========================
+
+def write_string(value):
+    data = value.encode("utf-8")
+    return struct.pack("<I", len(data)) + data
+
+
+def write_integer(value):
+    # small integer optimization
+    return struct.pack("<H", (value + 1) * 2)
+
+
+# =========================
+# VISITOR RESPONSE
+# =========================
 
 def create_visitor_response(session, guest_id, guest_key):
 
-
+    # -------------------------
     # Package header
-    # tag 0 = type (omitted)
-    # tag 1 = session
+    # response only contains session
+    # -------------------------
 
-    package = struct.pack(
-        "<HHH",
-        2,
-        1,
-        (session + 1) * 2
-    )
+    package = bytearray()
 
+    # field count = 2
+    package.extend(struct.pack("<H", 2))
 
-    # visitor.response
+    # skip type tag (tag 0)
+    package.extend(struct.pack("<H", 1))
 
-    id_bytes = guest_id.encode()
-    key_bytes = guest_key.encode()
+    # session tag 1
+    package.extend(struct.pack("<H", (session + 1) * 2))
 
 
-    body_header = struct.pack(
-        "<HHHH",
-        3,
-        1,
-        1,
-        2
-    )
+    # -------------------------
+    # visitor.response body
+    #
+    # tag 0 id
+    # tag 1 key
+    # tag 2 state
+    # -------------------------
+
+    body = bytearray()
+
+    # field count = 3
+    body.extend(struct.pack("<H", 3))
+
+    # string fields
+    body.extend(struct.pack("<H", 0))
+    body.extend(struct.pack("<H", 0))
+    
+    # state = 0
+    body.extend(struct.pack("<H", 2))
 
 
-    body_data = (
-        struct.pack("<I", len(id_bytes))
-        + id_bytes
-        + struct.pack("<I", len(key_bytes))
-        + key_bytes
-    )
+    # data section
+    body.extend(write_string(guest_id))
+    body.extend(write_string(guest_key))
 
 
-    full = package + body_header + body_data
+    raw = package + body
 
 
-    packed = sproto_pack(full)
+    packed = sproto_pack(raw)
 
 
-    return (
-        struct.pack(">H", len(packed))
-        + packed
-    )
-
-
-
-# -----------------------------
-# ACCOUNT GENERATOR
-# -----------------------------
-
-def generate_id():
-
-    return "".join(
-        random.choice("0123456789")
-        for _ in range(random.randint(15,18))
-    )
-
-
-def generate_key():
-
-    return "".join(
-        random.choice("0123456789")
-        for _ in range(random.randint(12,15))
-    )
+    # 2 byte big endian length
+    return struct.pack(">H", len(packed)) + packed
 
 
 
-# -----------------------------
-# CLIENT
-# -----------------------------
+# =========================
+# CLIENT HANDLER
+# =========================
 
-def handle_client(client, address):
+def handle_client(client, addr):
 
-    print("[+] Client:", address)
+    print("[+] Client:", addr)
 
     try:
 
-        while True:
+        data = client.recv(1024)
 
-            data = client.recv(2048)
-
-
-            if not data:
-                break
+        if not data:
+            return
 
 
-            print("RX:", data.hex())
+        print("RX:", data.hex())
 
 
-            # visitor.request
-            if data == bytes.fromhex("000415020604"):
+        # visitor request:
+        # 0004 1502 0604
+
+        if b"\x15\x02" in data:
+
+            session = 1
 
 
-                session = 1
-
-
-                player_id = generate_id()
-                player_key = generate_key()
-
-
-                print("===================")
-                print("ID :", player_id)
-                print("KEY:", player_key)
-                print("===================")
-
-
-
-                response = create_visitor_response(
-                    session,
-                    player_id,
-                    player_key
+            # 18 digit ID
+            guest_id = str(
+                random.randint(
+                    100000000000000000,
+                    999999999999999999
                 )
+            )
 
 
-                print(
-                    "RAW RESPONSE:",
-                    response.hex()
+            # 12 digit KEY
+            guest_key = str(
+                random.randint(
+                    100000000000,
+                    999999999999
                 )
+            )
 
 
-                client.sendall(response)
+            print("===================")
+            print("ID :", guest_id)
+            print("KEY:", guest_key)
+            print("===================")
 
 
-                print(
-                    "visitor.response SENT"
-                )
+            response = create_visitor_response(
+                session,
+                guest_id,
+                guest_key
+            )
 
 
-            else:
+            client.sendall(response)
 
-                print(
-                    "Unknown packet"
-                )
+            print("visitor.response SENT")
+
+
+        else:
+
+            print("Unknown packet")
 
 
     except Exception as e:
 
-        print(
-            "ERROR:",
-            e
-        )
+        print("ERROR:", e)
 
 
     finally:
 
         client.close()
-
-        print(
-            "Disconnected",
-            address
-        )
+        print("Disconnected", addr)
 
 
 
-# -----------------------------
-# SERVER
-# -----------------------------
+# =========================
+# SERVER START
+# =========================
 
 server = socket.socket(
     socket.AF_INET,
     socket.SOCK_STREAM
 )
-
 
 server.setsockopt(
     socket.SOL_SOCKET,
@@ -212,11 +203,9 @@ server.setsockopt(
     1
 )
 
-
 server.bind(
     ("0.0.0.0", PORT)
 )
-
 
 server.listen(20)
 
@@ -226,13 +215,13 @@ print("9777 SERVER RUNNING")
 print("===================")
 
 
-
 while True:
 
-    client, address = server.accept()
+    client, addr = server.accept()
 
-
-    threading.Thread(
+    t = threading.Thread(
         target=handle_client,
-        args=(client,address)
-    ).start()
+        args=(client, addr)
+    )
+
+    t.start()
