@@ -7,10 +7,16 @@ import random
 PORT = 9777
 
 
+# =========================
+# SPROTO 0 PACK
+# =========================
+
 def sproto_pack(data):
+
     packed = bytearray()
 
     for i in range(0, len(data), 8):
+
         chunk = data[i:i+8]
 
         if len(chunk) < 8:
@@ -20,6 +26,7 @@ def sproto_pack(data):
         values = bytearray()
 
         for j in range(8):
+
             if chunk[j] != 0:
                 mask |= (1 << j)
                 values.append(chunk[j])
@@ -31,79 +38,111 @@ def sproto_pack(data):
 
 
 
-def sproto_string(text):
-    b=text.encode()
-    return struct.pack("<I",len(b))+b
+# =========================
+# SPROTO HELPERS
+# =========================
+
+def write_string(text):
+
+    data = text.encode("utf-8")
+
+    return struct.pack("<I", len(data)) + data
 
 
 
-def make_header(fields):
+def write_header(fields):
 
-    out=struct.pack("<H",len(fields))
+    result = struct.pack("<H", len(fields))
 
-    for x in fields:
-        if x is None:
-            out += struct.pack("<H",1)
-        elif isinstance(x,int):
-            out += struct.pack("<H",(x+1)*2)
+    for field in fields:
+
+        if field is None:
+            result += struct.pack("<H", 1)
+
+        elif isinstance(field, int):
+            result += struct.pack("<H", (field + 1) * 2)
+
         else:
-            out += struct.pack("<H",0)
+            result += struct.pack("<H", 0)
 
-    return out
+    return result
 
 
+
+# =========================
+# VISITOR RESPONSE
+# =========================
 
 def visitor_response(session):
 
-    pkg = make_header([
+    guest_id = str(
+        random.randint(
+            100000000000000000,
+            999999999999999999
+        )
+    )
+
+    guest_key = str(
+        random.randint(
+            100000000000,
+            999999999999
+        )
+    )
+
+
+    print("===================")
+    print("ID :", guest_id)
+    print("KEY:", guest_key)
+    print("===================")
+
+
+    # Package header
+    package = write_header([
         None,
         session
     ])
 
 
-    body = make_header([
+    # visitor.response
+    body = write_header([
         "",
         "",
         0
     ])
 
-    body += sproto_string(
-        str(random.randint(100000000000000000,
-                           999999999999999999))
-    )
 
-    body += sproto_string(
-        str(random.randint(100000000000,
-                           999999999999))
-    )
+    body += write_string(guest_id)
+    body += write_string(guest_key)
 
 
-    data=pkg+body
+    raw = package + body
 
-    packed=sproto_pack(data)
 
-    return struct.pack(">H",len(packed))+packed
+    packed = sproto_pack(raw)
+
+
+    return struct.pack(">H", len(packed)) + packed
 
 
 
+# =========================
+# VERIFY RESPONSE
+# =========================
 
 def verify_response(session):
 
 
-    pkg = make_header([
+    package = write_header([
         None,
         session
     ])
 
 
+    response = write_header([
 
-    # verfiy.response fields 0-11
-
-    response = make_header([
-
-        0,      # state
-        999,    # session
-        "",     # game_server list
+        0,              # state
+        999,            # session
+        "",             # game server list
         None,
         None,
         "1.012.017",
@@ -117,7 +156,7 @@ def verify_response(session):
 
     # game_server object
 
-    server = make_header([
+    game = write_header([
 
         1,
         "",
@@ -127,81 +166,123 @@ def verify_response(session):
 
     ])
 
-    server += sproto_string("Revival Server")
-    server += sproto_string("127.0.0.1")
+
+    game += write_string("Revival Server")
+    game += write_string("127.0.0.1")
 
 
-    # list length + object
-
-    response += struct.pack("<I",len(server))
-    response += server
+    response += struct.pack("<I", len(game))
+    response += game
 
 
-    data=pkg+response
-
-    packed=sproto_pack(data)
-
-    return struct.pack(">H",len(packed))+packed
+    raw = package + response
 
 
+    packed = sproto_pack(raw)
+
+
+    return struct.pack(">H", len(packed)) + packed
 
 
 
-def client_thread(c,a):
+# =========================
+# CLIENT
+# =========================
 
-    print("[+] Client",a)
+def handle_client(client, addr):
+
+    print("[+] Client:", addr)
+
 
     try:
 
+        client.settimeout(5)
+
+        buffer = b""
+
+
         while True:
 
-            data=c.recv(4096)
+
+            data = client.recv(4096)
+
 
             if not data:
                 break
 
 
-            print("RX:",data.hex())
+            buffer += data
 
 
-            # visitor request
-            if b'\x15\x02' in data:
+            print("RX:", buffer.hex())
+
+
+            # visitor.request
+
+            if b"\x15\x02" in buffer:
+
 
                 print("Visitor request")
 
-                c.sendall(
-                    visitor_response(1)
-                )
+
+                packet = visitor_response(1)
+
+
+                client.sendall(packet)
+
 
                 print("visitor.response SENT")
 
 
-            # verify request
+                break
+
+
+
             else:
 
-                print("Verify request")
 
-                c.sendall(
-                    verify_response(2)
-                )
+                if len(buffer) > 2:
 
-                print("verfiy.response SENT")
+
+                    print("Verify request")
+
+
+                    packet = verify_response(2)
+
+
+                    client.sendall(packet)
+
+
+                    print("verfiy.response SENT")
+
+
+                    break
+
 
 
     except Exception as e:
-        print(e)
 
-
-    c.close()
-    print("Disconnected",a)
+        print("ERROR:", e)
 
 
 
+    finally:
 
-server=socket.socket(
+        client.close()
+
+        print("Disconnected", addr)
+
+
+
+# =========================
+# START SERVER
+# =========================
+
+server = socket.socket(
     socket.AF_INET,
     socket.SOCK_STREAM
 )
+
 
 server.setsockopt(
     socket.SOL_SOCKET,
@@ -209,21 +290,31 @@ server.setsockopt(
     1
 )
 
+
 server.bind(
-    ("0.0.0.0",PORT)
+    ("0.0.0.0", PORT)
 )
+
 
 server.listen(20)
 
 
+print("===================")
 print("LOGIN SERVER 9777 RUNNING")
+print("===================")
+
 
 
 while True:
 
-    c,a=server.accept()
 
-    threading.Thread(
-        target=client_thread,
-        args=(c,a)
-    ).start()
+    client, addr = server.accept()
+
+
+    thread = threading.Thread(
+        target=handle_client,
+        args=(client, addr)
+    )
+
+
+    thread.start()
