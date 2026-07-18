@@ -2,29 +2,221 @@ import socket
 import threading
 import struct
 import random
+import string
 
 
 PORT = 9777
 
 
-def send_packet(client, payload):
-    # Sproto packet = 2 byte length + data
-    length = len(payload)
-    header = struct.pack(">H", length)
-    client.send(header + payload)
+# =========================
+# SPROTO SERIALIZER
+# =========================
+
+class SprotoSerialize:
+
+    def __init__(self):
+        self.fields = []
+        self.data = bytearray()
+        self.last_tag = -1
 
 
-def create_guest_id():
-    return str(random.randint(100000000000, 999999999999))
+    def write_tag(self, tag, value):
+
+        skip = tag - self.last_tag - 1
+
+        if skip > 0:
+            self.fields.append(((skip - 1) * 2) + 1)
+
+        self.fields.append(value)
+        self.last_tag = tag
 
 
-def create_key():
-    return str(random.randint(1000000000, 9999999999))
+    def write_integer(self, value, tag):
+
+        # small integer optimization
+        encoded = (value + 1) * 2
+
+        self.write_tag(tag, encoded)
 
 
-def handle_client(client, address):
+    def write_string(self, value, tag):
 
-    print(f"[*] Lidhje e re: {address}")
+        self.write_tag(tag, 0)
+
+        b = value.encode("utf-8")
+
+        self.data.extend(
+            struct.pack("<I", len(b))
+        )
+
+        self.data.extend(b)
+
+
+
+    def build(self):
+
+        result = bytearray()
+
+        # field count
+        result.extend(
+            struct.pack("<H", len(self.fields))
+        )
+
+
+        # header fields
+        for f in self.fields:
+            result.extend(
+                struct.pack("<H", f)
+            )
+
+
+        # body
+        result.extend(self.data)
+
+
+        return bytes(result)
+
+
+
+# =========================
+# SPROTO PACK
+# =========================
+
+def sproto_pack(data):
+
+    out = bytearray()
+
+    for i in range(0,len(data),8):
+
+        block = data[i:i+8]
+
+        block = block.ljust(8,b"\x00")
+
+
+        mask = 0
+        values = []
+
+
+        for j,b in enumerate(block):
+
+            if b != 0:
+
+                mask |= (1 << j)
+                values.append(b)
+
+
+
+        out.append(mask)
+
+        out.extend(values)
+
+
+    return bytes(out)
+
+
+
+# =========================
+# CREATE VISITOR RESPONSE
+# =========================
+
+def create_visitor_response(session):
+
+
+    guest_id = str(
+        random.randint(
+            100000000000,
+            999999999999
+        )
+    )
+
+
+    key = ''.join(
+        random.choice(
+            string.ascii_letters + string.digits
+        )
+        for _ in range(10)
+    )
+
+
+    print("===================")
+    print("NEW ACCOUNT")
+    print("ID :", guest_id)
+    print("KEY:", key)
+    print("===================")
+
+
+
+    # Package header
+    pkg = SprotoSerialize()
+
+    # tag 1 = session
+    pkg.write_integer(
+        session,
+        1
+    )
+
+
+    package = pkg.build()
+
+
+
+    # visitor.response
+
+    visitor = SprotoSerialize()
+
+
+    # tag 0 id
+    visitor.write_string(
+        guest_id,
+        0
+    )
+
+
+    # tag 1 key
+    visitor.write_string(
+        key,
+        1
+    )
+
+
+    # tag 2 state
+    visitor.write_integer(
+        0,
+        2
+    )
+
+
+    body = visitor.build()
+
+
+
+    final = package + body
+
+
+    packed = sproto_pack(final)
+
+
+
+    packet = (
+        struct.pack(">H",len(packed))
+        +
+        packed
+    )
+
+
+    return packet
+
+
+
+
+# =========================
+# CLIENT HANDLER
+# =========================
+
+def handle_client(client,address):
+
+    print("[+] Client:",address)
+
 
     try:
 
@@ -32,77 +224,69 @@ def handle_client(client, address):
 
             data = client.recv(1024)
 
+
             if not data:
                 break
 
 
-            print("RX:", data.hex())
+
+            print("RX:",
+                  data.hex()
+            )
 
 
-            # ============================
-            # visitor request (type 2)
-            # ============================
-
-            if "0206" in data.hex():
-
-                guest_id = create_guest_id()
-                guest_key = create_key()
-
-                print("Krijova account:")
-                print("ID:", guest_id)
-                print("KEY:", guest_key)
+            # visitor request
+            if data.hex().endswith("020604"):
 
 
-                # TEMP RESPONSE
-                # state=0
-                # id
-                # key
+                # nga paketa jote:
+                # 0004 1502 0604
+                #
+                # session = 1
 
-                response = bytes.fromhex(
-                    "0200"
+
+                response = create_visitor_response(1)
+
+
+                client.send(response)
+
+
+                print(
+                    "visitor.response SENT"
                 )
 
-                send_packet(client, response)
-
-                print("visitor.response SENT")
-
-
-            # ============================
-            # verify request (type 3)
-            # ============================
-
-            elif "0306" in data.hex():
-
-                session = random.randint(10000,99999)
-
-                print("Session:", session)
-
-
-                # state=0
-                # session
-
-
-                response = bytes.fromhex(
-                    "0200"
-                )
-
-
-                send_packet(client,response)
-
-                print("verfiy.response SENT")
 
 
     except Exception as e:
-        print("[ERROR]",e)
+
+        print(
+            "[ERROR]",
+            e
+        )
 
 
     finally:
+
         client.close()
-        print("[DISCONNECT]",address)
+
+        print(
+            "Disconnected",
+            address
+        )
 
 
 
-server = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+
+# =========================
+# SERVER
+# =========================
+
+
+server = socket.socket(
+    socket.AF_INET,
+    socket.SOCK_STREAM
+)
+
 
 server.setsockopt(
     socket.SOL_SOCKET,
@@ -126,7 +310,9 @@ print("======================")
 
 while True:
 
+
     client,address = server.accept()
+
 
     threading.Thread(
         target=handle_client,
