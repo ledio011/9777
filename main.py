@@ -54,7 +54,6 @@ def sproto_unpack(data):
     return bytes(out)
 
 def encode_sproto(fields):
-    if not fields: return struct.pack("<H", 0)
     fields.sort(key=lambda x: x[0])
     header = bytearray()
     body = bytearray()
@@ -69,7 +68,7 @@ def encode_sproto(fields):
             if 0 <= value <= 32766: header += struct.pack("<H", (value + 1) * 2)
             else:
                 header += struct.pack("<H", 0)
-                body += struct.pack("<I", 4) + struct.pack("<i", value)
+                body += struct.pack("<I", 4) + struct.pack("<I", value)
         elif isinstance(value, (str, bytes, bytearray)):
             if isinstance(value, str): value = value.encode('utf-8')
             header += struct.pack("<H", 0)
@@ -103,6 +102,7 @@ def decode_header(data):
 
 def client_handler(conn, addr):
     print(f"[+] Login Client: {addr}")
+    is_new_account = False
     try:
         while True:
             h = conn.recv(2)
@@ -111,34 +111,37 @@ def client_handler(conn, addr):
             data = b""
             while len(data) < size:
                 data += conn.recv(size - len(data))
-
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
 
-            if msg_type == 2: # Visitor - AUTO GENERATE
-                # ID: 12 digits, PASS: 10 digits
-                uid = "".join([str(random.randint(0, 9)) for _ in range(12)])
-                key = "".join([str(random.randint(0, 9)) for _ in range(10)])
-                while uid in accounts: uid = "".join([str(random.randint(0, 9)) for _ in range(12)])
-
+            if msg_type == 2: # Visitor Request
+                uid = "".join([str(random.randint(0, 9)) for _ in range(random.randint(12, 15))])
+                key = "".join([str(random.randint(0, 9)) for _ in range(random.randint(8, 12))])
+                while uid in accounts: uid = str(random.randint(10**11, 10**15))
                 accounts[uid] = key
                 save_accounts(accounts)
-                print(f"AUTO-CREATE: ID={uid} PASS={key}")
+                is_new_account = True # Shenojme qe sapo u krijua
 
-                # Respondi qe loja i ruan automatikisht
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)])
-                pkg_h = encode_sproto([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
+                header = encode_sproto([(1, session)])
+                conn.sendall(struct.pack(">H", len(sproto_pack(header + resp))) + sproto_pack(header + resp))
+                print(f"NEW ACCOUNT: {uid}")
 
-            elif msg_type == 3: # Verify
-                srv = encode_sproto([(0, 1), (1, "Main Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
-                resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017"), (6, "0")])
-                pkg_h = encode_sproto([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
+            elif msg_type == 3: # Verify Request
+                if is_new_account:
+                    # TRIKU: Kthejme state 3 qe loja te hapi faqen e Account dhe te mbushi kutite
+                    resp = encode_sproto([(0, 3), (1, session)])
+                    is_new_account = False # E heqim flamurin
+                else:
+                    srv = encode_sproto([(0, 1), (1, "Main Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
+                    resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017")])
 
-            elif msg_type == 218 or msg_type == 7: # Heartbeat
-                pkg_h = encode_sproto([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h))) + sproto_pack(pkg_h))
+                header = encode_sproto([(1, session)])
+                conn.sendall(struct.pack(">H", len(sproto_pack(header + resp))) + sproto_pack(header + resp))
+
+            elif msg_type == 218 or msg_type == 7:
+                header = encode_sproto([(1, session)])
+                conn.sendall(struct.pack(">H", len(sproto_pack(header))) + sproto_pack(header))
 
     except: pass
     finally: conn.close()
