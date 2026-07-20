@@ -23,10 +23,11 @@ def save_accounts(accounts):
 accounts = load_accounts()
 
 def sproto_pack(data):
+    padding = (8 - (len(data) % 8)) % 8
+    data += b'\x00' * padding
     out = bytearray()
     for i in range(0, len(data), 8):
         chunk = data[i:i+8]
-        if len(chunk) < 8: chunk += b'\x00' * (8 - len(chunk))
         mask = 0
         values = bytearray()
         for j, b in enumerate(chunk):
@@ -68,7 +69,7 @@ def encode_sproto(fields):
             if 0 <= value <= 32766: header += struct.pack("<H", (value + 1) * 2)
             else:
                 header += struct.pack("<H", 0)
-                body += struct.pack("<I", 8) + struct.pack("<q", value) # 64-bit integer
+                body += struct.pack("<I", 8) + struct.pack("<q", value)
         elif isinstance(value, (str, bytes, bytearray)):
             if isinstance(value, str): value = value.encode('utf-8')
             header += struct.pack("<H", 0)
@@ -102,7 +103,7 @@ def decode_header(data):
 
 def client_handler(conn, addr):
     print(f"[+] Login Client: {addr}")
-    just_created = False
+    is_new = False
     try:
         while True:
             h = conn.recv(2)
@@ -120,20 +121,19 @@ def client_handler(conn, addr):
                 while uid in accounts: uid = str(random.randint(10**12, 10**15 - 1))
                 accounts[uid] = key
                 save_accounts(accounts)
-                just_created = True
+                is_new = True
                 print(f"NEW ACC: ID={uid} PASS={key}")
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)])
                 pkg_h = encode_sproto([(1, session)])
                 conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
 
             elif msg_type == 3: # Verify
-                if just_created:
-                    # TRICK: state 3 detyron lojen te kthehet te hyrja dhe te mbushi kutite automatikisht
-                    resp = encode_sproto([(0, 3), (1, session)])
-                    just_created = False
+                if is_new:
+                    resp = encode_sproto([(0, 3), (1, session)]) # Force UI Sync
+                    is_new = False
                 else:
-                    srv = encode_sproto([(0, 1), (1, "Main Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
-                    resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017")])
+                    srv = encode_sproto([(0, 1), (1, "Official Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
+                    resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017"), (6, "0")])
 
                 pkg_h = encode_sproto([(1, session)])
                 conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
