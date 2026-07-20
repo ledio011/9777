@@ -21,6 +21,10 @@ def save_accounts(accounts):
 accounts = load_accounts()
 
 def sproto_pack(data):
+    # RREGULLIMI: Sproto kërkon blloqe 8-byte
+    padding = (8 - (len(data) % 8)) % 8
+    data += b'\x00' * padding
+
     out = bytearray()
     for i in range(0, len(data), 8):
         chunk = data[i:i+8]
@@ -57,11 +61,7 @@ def encode_object(fields):
         skip = tag - last - 1
         if skip > 0:
             header += struct.pack("<H", (skip - 1) * 2 + 1)
-
-        if value is None: # Empty List/Object
-            header += struct.pack("<H", 0)
-            body += struct.pack("<I", 0)
-        elif isinstance(value, int):
+        if isinstance(value, int):
             header += struct.pack("<H", (value + 1) * 2)
         elif isinstance(value, str):
             header += struct.pack("<H", 0)
@@ -106,27 +106,29 @@ def client_handler(conn, addr):
             print(f"Login RX Type: {msg_type}")
 
             if msg_type == 2: # Visitor
-                uid = str(random.randint(100000, 999999))
-                key = str(random.randint(100000, 999999))
+                uid = str(random.randint(100000000000, 999999999999999))
+                key = str(random.randint(10000000, 999999999999))
                 accounts[uid] = key
                 save_accounts(accounts)
+
                 body = encode_object([(0, uid), (1, key), (2, 0)])
-                header = encode_object([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(header + body))) + sproto_pack(header + body))
+                header = encode_object([(1, session)]) if session else encode_object([])
+                packed = sproto_pack(header + body)
+                conn.sendall(struct.pack(">H", len(packed)) + packed)
 
             elif msg_type == 3: # Verify
-                # Shto nje server ne liste qe loja te kete ku te lidhet
-                srv = encode_object([(0,1), (1,"Local Server"), (2,"127.0.0.1"), (3,9555), (4,1), (6,1)])
-                body = encode_object([(0, 0), (1, session), (2, srv), (3,"1"), (5,"1.012.017")])
+                # Tag 2 eshte IP e Game Server (127.0.0.1 ose Railway IP)
+                srv = encode_object([(0, 1), (1, "Main Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
+                body = encode_object([(0, 0), (1, session), (2, srv), (5, "1.012.017")])
                 header = encode_object([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(header + body))) + sproto_pack(header + body))
+                packed = sproto_pack(header + body)
+                conn.sendall(struct.pack(">H", len(packed)) + packed)
 
-            elif msg_type == 7: # Update Game Server
-                srv = encode_object([(0,1), (1,"Local Server"), (2,"127.0.0.1"), (3,9555), (4,1), (6,1)])
-                # Tag 2 eshte lista e serverave ne update_game_server.response
-                body = encode_object([(2, srv)])
+            elif msg_type == 218: # Heartbeat
+                body = encode_object([(0, 0), (1, 0)]) # Dummy time
                 header = encode_object([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(header + body))) + sproto_pack(header + body))
+                packed = sproto_pack(header + body)
+                conn.sendall(struct.pack(">H", len(packed)) + packed)
 
     except Exception as e:
         print(f"Login Error: {e}")
