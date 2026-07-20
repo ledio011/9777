@@ -10,8 +10,10 @@ DB_FILE = "accounts.json"
 
 def load_accounts():
     if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(DB_FILE, "r") as f:
+                return json.load(f)
+        except: return {}
     return {}
 
 def save_accounts(accounts):
@@ -21,7 +23,7 @@ def save_accounts(accounts):
 accounts = load_accounts()
 
 def sproto_pack(data):
-    # Padding to 8-byte chunks
+    # Sproto requires 8-byte alignment for chunks
     padding = (8 - (len(data) % 8)) % 8
     data += b'\x00' * padding
     out = bytearray()
@@ -53,42 +55,35 @@ def sproto_unpack(data):
     return bytes(out)
 
 def encode_sproto(fields):
-    # Sort fields by tag (CRITICAL for Sproto)
     fields.sort(key=lambda x: x[0])
     header = bytearray()
     body = bytearray()
     last_tag = -1
-
     for tag, value in fields:
-        # Skip tags if necessary
         skip = tag - last_tag - 1
         if skip > 0:
             header += struct.pack("<H", (skip - 1) * 2 + 1)
-
-        if value is None: # Empty List/Map
+        if value is None:
             header += struct.pack("<H", 0)
             body += struct.pack("<I", 0)
         elif isinstance(value, int):
-            # Small integers fit in header
             if 0 <= value <= 32766:
                 header += struct.pack("<H", (value + 1) * 2)
-            else: # Large integers in body
+            else:
                 header += struct.pack("<H", 0)
                 body += struct.pack("<I", 4) + struct.pack("<I", value)
-        elif isinstance(value, (str, bytes)):
-            if isinstance(value, str):
-                value = value.encode('utf-8')
+        elif isinstance(value, (str, bytes, bytearray)):
+            if isinstance(value, str): value = value.encode('utf-8')
             header += struct.pack("<H", 0)
             body += struct.pack("<I", len(value)) + value
-        elif isinstance(value, list): # LIST OF OBJECTS
+        elif isinstance(value, list):
             header += struct.pack("<H", 0)
             list_body = bytearray()
             for item in value:
-                if isinstance(item, bytes): # Already encoded object
+                if isinstance(item, (bytes, bytearray)):
                     list_body += struct.pack("<I", len(item)) + item
             body += struct.pack("<I", len(list_body)) + list_body
         last_tag = tag
-
     return struct.pack("<H", len(header) // 2) + header + body
 
 def decode_header(data):
@@ -118,46 +113,37 @@ def client_handler(conn, addr):
             data = b""
             while len(data) < size:
                 data += conn.recv(size - len(data))
-
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
-            print(f"Login RX Type: {msg_type}, Session: {session}")
 
             if msg_type == 2: # Visitor Request
-                uid = str(random.randint(100000000000, 999999999999999))
-                key = str(random.randint(10000000, 999999999999))
+                # Generate unique ID (12-15) and Key (8-12)
+                uid = str(random.randint(10**11, 10**15 - 1))
+                key = str(random.randint(10**7, 10**12 - 1))
+                while uid in accounts: uid = str(random.randint(10**11, 10**15 - 1))
+
                 accounts[uid] = key
                 save_accounts(accounts)
 
-                resp_body = encode_sproto([(0, uid), (1, key), (2, 0)])
-                pkg_header = encode_sproto([(1, session)])
-                packed = sproto_pack(pkg_header + resp_body)
+                print(f"NEW ACCOUNT: ID={uid}, KEY={key}")
+                resp = encode_sproto([(0, uid), (1, key), (2, 0)])
+                header = encode_sproto([(1, session)])
+                packed = sproto_pack(header + resp)
                 conn.sendall(struct.pack(">H", len(packed)) + packed)
-                print(f"Generated ID: {uid}, Key: {key}")
 
             elif msg_type == 3: # Verify Request
-                # Game Server Object
-                srv_obj = encode_sproto([
-                    (0, 1), (1, "Main Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)
-                ])
-                # List of Servers (Tag 2 is a List in Sproto)
-                resp_body = encode_sproto([
-                    (0, 0), (1, session), (2, [srv_obj]), (5, "1.012.017")
-                ])
-                pkg_header = encode_sproto([(1, session)])
-                packed = sproto_pack(pkg_header + resp_body)
+                srv = encode_sproto([(0, 1), (1, "Official Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
+                resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017"), (6, "0")])
+                header = encode_sproto([(1, session)])
+                packed = sproto_pack(header + resp)
                 conn.sendall(struct.pack(">H", len(packed)) + packed)
 
-            elif msg_type == 218 or msg_type == 7: # Heartbeat or Update Server
-                pkg_header = encode_sproto([(1, session)])
-                resp_body = encode_sproto([]) # Empty success
-                packed = sproto_pack(pkg_header + resp_body)
-                conn.sendall(struct.pack(">H", len(packed)) + packed)
+            elif msg_type == 218 or msg_type == 7: # Heartbeat / Update
+                header = encode_sproto([(1, session)])
+                conn.sendall(struct.pack(">H", len(sproto_pack(header))) + sproto_pack(header))
 
-    except Exception as e:
-        print(f"Login Error: {e}")
-    finally:
-        conn.close()
+    except: pass
+    finally: conn.close()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
