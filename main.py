@@ -23,7 +23,6 @@ def save_accounts(accounts):
 accounts = load_accounts()
 
 def sproto_pack(data):
-    # Sproto requires 8-byte alignment for chunks
     padding = (8 - (len(data) % 8)) % 8
     data += b'\x00' * padding
     out = bytearray()
@@ -116,31 +115,28 @@ def client_handler(conn, addr):
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
 
-            if msg_type == 2: # Visitor Request
-                # Generate unique ID (12-15) and Key (8-12)
-                uid = str(random.randint(10**11, 10**15 - 1))
-                key = str(random.randint(10**7, 10**12 - 1))
-                while uid in accounts: uid = str(random.randint(10**11, 10**15 - 1))
-
+            if msg_type == 2: # Visitor
+                uid = str(random.randint(100000000000, 999999999999999))
+                key = str(random.randint(10000000, 999999999999))
+                while uid in accounts: uid = str(random.randint(100000000000, 999999999999999))
                 accounts[uid] = key
                 save_accounts(accounts)
-
-                print(f"NEW ACCOUNT: ID={uid}, KEY={key}")
+                print(f"ID: {uid}, Key: {key}")
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)])
-                header = encode_sproto([(1, session)])
-                packed = sproto_pack(header + resp)
+                pkg_h = encode_sproto([(1, session)])
+                packed = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(packed)) + packed)
 
-            elif msg_type == 3: # Verify Request
+            elif msg_type == 3: # Verify
                 srv = encode_sproto([(0, 1), (1, "Official Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
                 resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017"), (6, "0")])
-                header = encode_sproto([(1, session)])
-                packed = sproto_pack(header + resp)
+                pkg_h = encode_sproto([(1, session)])
+                packed = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(packed)) + packed)
 
-            elif msg_type == 218 or msg_type == 7: # Heartbeat / Update
-                header = encode_sproto([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(header))) + sproto_pack(header))
+            elif msg_type == 218 or msg_type == 7:
+                pkg_h = encode_sproto([(1, session)])
+                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h))) + sproto_pack(pkg_h))
 
     except: pass
     finally: conn.close()
