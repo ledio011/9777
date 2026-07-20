@@ -23,7 +23,6 @@ def save_accounts(accounts):
 accounts = load_accounts()
 
 def sproto_pack(data):
-    # Ensure data is 8-byte aligned for the packing loop
     padding = (8 - (len(data) % 8)) % 8
     data += b'\x00' * padding
     out = bytearray()
@@ -62,14 +61,12 @@ def encode_sproto(fields):
     last_tag = -1
     for tag, value in fields:
         skip = tag - last_tag - 1
-        if skip > 0:
-            header += struct.pack("<H", (skip - 1) * 2 + 1)
+        if skip > 0: header += struct.pack("<H", (skip - 1) * 2 + 1)
         if value is None:
             header += struct.pack("<H", 0)
             body += struct.pack("<I", 0)
         elif isinstance(value, int):
-            if 0 <= value <= 32766:
-                header += struct.pack("<H", (value + 1) * 2)
+            if 0 <= value <= 32766: header += struct.pack("<H", (value + 1) * 2)
             else:
                 header += struct.pack("<H", 0)
                 body += struct.pack("<I", 4) + struct.pack("<i", value)
@@ -117,40 +114,34 @@ def client_handler(conn, addr):
 
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
-            print(f"Login RX Type: {msg_type}, Session: {session}")
 
-            if msg_type == 2: # Visitor Request
-                uid = str(random.randint(100000000000, 999999999999)) # 12 digits
-                key = str(random.randint(1000000000, 9999999999))   # 10 digits
-                while uid in accounts: uid = str(random.randint(100000000000, 999999999999))
+            if msg_type == 2: # Visitor - AUTO GENERATE
+                # ID: 12 digits, PASS: 10 digits
+                uid = "".join([str(random.randint(0, 9)) for _ in range(12)])
+                key = "".join([str(random.randint(0, 9)) for _ in range(10)])
+                while uid in accounts: uid = "".join([str(random.randint(0, 9)) for _ in range(12)])
 
                 accounts[uid] = key
                 save_accounts(accounts)
-                print(f"CREATE: ID={uid} PASS={key}")
+                print(f"AUTO-CREATE: ID={uid} PASS={key}")
 
-                # Tag 0: id, Tag 1: key, Tag 2: state
+                # Respondi qe loja i ruan automatikisht
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)])
                 pkg_h = encode_sproto([(1, session)])
-                packed = sproto_pack(pkg_h + resp)
-                conn.sendall(struct.pack(">H", len(packed)) + packed)
+                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
 
-            elif msg_type == 3: # Verify Request
-                srv = encode_sproto([(0, 1), (1, "Local Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
-                # Tag 0: state (0=success), Tag 1: session, Tag 2: srv_list, Tag 5: version
-                resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017"), (6, "0"), (8, "Welcome!")])
+            elif msg_type == 3: # Verify
+                srv = encode_sproto([(0, 1), (1, "Main Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
+                resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017"), (6, "0")])
                 pkg_h = encode_sproto([(1, session)])
-                packed = sproto_pack(pkg_h + resp)
-                conn.sendall(struct.pack(">H", len(packed)) + packed)
+                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
 
-            elif msg_type == 218 or msg_type == 7: # Heartbeat / Update
+            elif msg_type == 218 or msg_type == 7: # Heartbeat
                 pkg_h = encode_sproto([(1, session)])
-                packed = sproto_pack(pkg_h + encode_sproto([]))
-                conn.sendall(struct.pack(">H", len(packed)) + packed)
+                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h))) + sproto_pack(pkg_h))
 
-    except Exception as e:
-        print(f"Login Error: {e}")
-    finally:
-        conn.close()
+    except: pass
+    finally: conn.close()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
