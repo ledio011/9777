@@ -7,257 +7,176 @@ import random
 PORT = 9777
 
 
-# =========================
+# ==========================
 # SPROTO 0 PACK
-# =========================
+# ==========================
 
 def sproto_pack(data):
-
-    packed = bytearray()
+    out = bytearray()
 
     for i in range(0, len(data), 8):
-
         chunk = data[i:i+8]
-
-        if len(chunk) < 8:
-            chunk += b'\x00' * (8-len(chunk))
 
         mask = 0
         values = bytearray()
 
-        for j in range(8):
-
-            if chunk[j] != 0:
+        for j, b in enumerate(chunk):
+            if b != 0:
                 mask |= (1 << j)
-                values.append(chunk[j])
+                values.append(b)
 
-        packed.append(mask)
-        packed.extend(values)
+        out.append(mask)
+        out.extend(values)
 
-    return bytes(packed)
+    return bytes(out)
 
 
-
-# =========================
+# ==========================
 # SPROTO HELPERS
-# =========================
+# ==========================
 
-def write_string(text):
+def integer(value):
+    return struct.pack("<H", (value + 1) * 2)
 
+
+def string_field(text):
     data = text.encode("utf-8")
-
     return struct.pack("<I", len(data)) + data
 
 
-
-def write_header(fields):
-
+def make_header(fields):
     result = struct.pack("<H", len(fields))
 
-    for field in fields:
-
-        if field is None:
-            result += struct.pack("<H", 1)
-
-        elif isinstance(field, int):
-            result += struct.pack("<H", (field + 1) * 2)
-
+    for f in fields:
+        if isinstance(f, int):
+            result += integer(f)
+        elif isinstance(f, str):
+            result += struct.pack("<H", 0)
         else:
             result += struct.pack("<H", 0)
 
     return result
 
 
+# ==========================
+# PACKAGE HEADER
+# ==========================
 
-# =========================
+def package_response(session):
+
+    # Package:
+    # tag0 = type absent
+    # tag1 = session
+
+    return (
+        struct.pack("<H", 2) +
+        struct.pack("<H", 0) +
+        struct.pack("<H", 1) +
+        integer(session)
+    )
+
+
+# ==========================
 # VISITOR RESPONSE
-# =========================
+# ==========================
 
 def visitor_response(session):
 
-    guest_id = str(
-        random.randint(
-            100000000000000000,
-            999999999999999999
-        )
-    )
+    uid = str(random.randint(100000000000,999999999999))
+    pwd = str(random.randint(1000000000,9999999999))
 
-    guest_key = str(
-        random.randint(
-            100000000000,
-            999999999999
-        )
-    )
+    print("")
+    print("================")
+    print("ACCOUNT CREATED")
+    print("ID :", uid)
+    print("PWD:", pwd)
+    print("================")
 
 
-    print("===================")
-    print("ID :", guest_id)
-    print("KEY:", guest_key)
-    print("===================")
-
-
-    # Package header
-    package = write_header([
-        None,
-        session
-    ])
-
-
-    # visitor.response
-    body = write_header([
+    body = make_header([
         "",
         "",
-        0
     ])
 
+    body += string_field(uid)
+    body += string_field(pwd)
 
-    body += write_string(guest_id)
-    body += write_string(guest_key)
 
-
-    raw = package + body
-
+    raw = package_response(session) + body
 
     packed = sproto_pack(raw)
-
 
     return struct.pack(">H", len(packed)) + packed
 
 
 
-# =========================
+# ==========================
 # VERIFY RESPONSE
-# =========================
+# ==========================
 
 def verify_response(session):
 
 
-    package = write_header([
-        None,
-        session
-    ])
-
-
-    response = write_header([
-
-        0,              # state
-        999,            # session
-        "",             # game server list
-        None,
-        None,
-        "1.012.017",
-        "1.012.017",
+    body = make_header([
         0,
-        "Welcome",
-        "1"
-
-    ])
-
-
-    # game_server object
-
-    game = write_header([
-
         1,
         "",
         "",
-        9555,
-        0
-
+        0,
+        "1.012.017",
+        "0",
+        0,
+        "Welcome",
+        "1"
     ])
 
 
-    game += write_string("Revival Server")
-    game += write_string("127.0.0.1")
+    body += string_field("Welcome")
 
 
-    response += struct.pack("<I", len(game))
-    response += game
-
-
-    raw = package + response
-
+    raw = package_response(session) + body
 
     packed = sproto_pack(raw)
-
 
     return struct.pack(">H", len(packed)) + packed
 
 
 
-# =========================
+# ==========================
 # CLIENT
-# =========================
+# ==========================
 
-def handle_client(client, addr):
+def client_thread(sock, addr):
 
-    print("[+] Client:", addr)
-
+    print("[+] Connected:", addr)
 
     try:
 
-        client.settimeout(5)
-
-        buffer = b""
-
-
         while True:
 
-
-            data = client.recv(4096)
-
+            data = sock.recv(4096)
 
             if not data:
                 break
 
 
-            buffer += data
+            print("RX:", data.hex())
 
 
-            print("RX:", buffer.hex())
+            # visitor request
+            if len(data) > 0:
 
+                print("Sending verify response")
 
-            # visitor.request
+                sock.sendall(
+                    visitor_response(1)
+                )
 
-            if b"\x15\x02" in buffer:
-
-
-                print("Visitor request")
-
-
-                packet = visitor_response(1)
-
-
-                client.sendall(packet)
-
-
-                print("visitor.response SENT")
-
+                sock.sendall(
+                    verify_response(2)
+                )
 
                 break
-
-
-
-            else:
-
-
-                if len(buffer) > 2:
-
-
-                    print("Verify request")
-
-
-                    packet = verify_response(2)
-
-
-                    client.sendall(packet)
-
-
-                    print("verfiy.response SENT")
-
-
-                    break
-
 
 
     except Exception as e:
@@ -265,24 +184,21 @@ def handle_client(client, addr):
         print("ERROR:", e)
 
 
-
     finally:
 
-        client.close()
-
-        print("Disconnected", addr)
-
+        sock.close()
+        print("Disconnected")
 
 
-# =========================
-# START SERVER
-# =========================
+
+# ==========================
+# SERVER
+# ==========================
 
 server = socket.socket(
     socket.AF_INET,
     socket.SOCK_STREAM
 )
-
 
 server.setsockopt(
     socket.SOL_SOCKET,
@@ -290,31 +206,24 @@ server.setsockopt(
     1
 )
 
-
 server.bind(
     ("0.0.0.0", PORT)
 )
 
-
 server.listen(20)
 
 
-print("===================")
-print("LOGIN SERVER 9777 RUNNING")
-print("===================")
-
+print("======================")
+print("LOGIN SERVER 9777 ON")
+print("======================")
 
 
 while True:
 
+    c,a = server.accept()
 
-    client, addr = server.accept()
-
-
-    thread = threading.Thread(
-        target=handle_client,
-        args=(client, addr)
-    )
-
-
-    thread.start()
+    threading.Thread(
+        target=client_thread,
+        args=(c,a),
+        daemon=True
+    ).start()
