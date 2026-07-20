@@ -57,7 +57,11 @@ def encode_object(fields):
         skip = tag - last - 1
         if skip > 0:
             header += struct.pack("<H", (skip - 1) * 2 + 1)
-        if isinstance(value, int):
+
+        if value is None: # Empty List/Object
+            header += struct.pack("<H", 0)
+            body += struct.pack("<I", 0)
+        elif isinstance(value, int):
             header += struct.pack("<H", (value + 1) * 2)
         elif isinstance(value, str):
             header += struct.pack("<H", 0)
@@ -70,20 +74,14 @@ def encode_object(fields):
     return struct.pack("<H", len(header) // 2) + header + body
 
 def decode_header(data):
-    # Header minimal per Sproto Package: [Size][Header][Body]
-    # Tag 0: Type, Tag 1: Session
     if len(data) < 2: return None, None
     h_len = struct.unpack("<H", data[:2])[0]
     header = data[2:2+h_len*2]
-    msg_type = None
-    session = None
-
-    idx = 0
-    curr_tag = 0
+    msg_type, session = None, None
+    idx, curr_tag = 0, 0
     while idx < len(header):
         val = struct.unpack("<H", header[idx:idx+2])[0]
-        if val & 1: # Skip
-            curr_tag += (val >> 1) + 1
+        if val & 1: curr_tag += (val >> 1) + 1
         else:
             real_val = (val >> 1) - 1
             if curr_tag == 0: msg_type = real_val
@@ -93,7 +91,7 @@ def decode_header(data):
     return msg_type, session
 
 def client_handler(conn, addr):
-    print(f"[+] Connected: {addr}")
+    print(f"[+] Login Client: {addr}")
     try:
         while True:
             h = conn.recv(2)
@@ -105,42 +103,40 @@ def client_handler(conn, addr):
 
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
-
-            print(f"RX Type: {msg_type}, Session: {session}")
+            print(f"Login RX Type: {msg_type}")
 
             if msg_type == 2: # Visitor
-                uid = str(random.randint(1000000, 9999999))
-                key = str(random.randint(1000000, 9999999))
+                uid = str(random.randint(100000, 999999))
+                key = str(random.randint(100000, 999999))
                 accounts[uid] = key
                 save_accounts(accounts)
-
                 body = encode_object([(0, uid), (1, key), (2, 0)])
-                header = encode_object([(1, session)]) if session else encode_object([])
-                packed = sproto_pack(header + body)
-                conn.sendall(struct.pack(">H", len(packed)) + packed)
-                print(f"Account Created: {uid}")
+                header = encode_object([(1, session)])
+                conn.sendall(struct.pack(">H", len(sproto_pack(header + body))) + sproto_pack(header + body))
 
             elif msg_type == 3: # Verify
-                game_server = encode_object([
-                    (0, 1), (1, "Europe"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)
-                ])
-                body = encode_object([
-                    (0, 0), (1, session), (2, game_server), (3, "1"), (5, "1.012.017"), (6, "0"), (8, "Welcome"), (9, "1")
-                ])
+                # Shto nje server ne liste qe loja te kete ku te lidhet
+                srv = encode_object([(0,1), (1,"Local Server"), (2,"127.0.0.1"), (3,9555), (4,1), (6,1)])
+                body = encode_object([(0, 0), (1, session), (2, srv), (3,"1"), (5,"1.012.017")])
                 header = encode_object([(1, session)])
-                packed = sproto_pack(header + body)
-                conn.sendall(struct.pack(">H", len(packed)) + packed)
-                print("Verify Success")
+                conn.sendall(struct.pack(">H", len(sproto_pack(header + body))) + sproto_pack(header + body))
+
+            elif msg_type == 7: # Update Game Server
+                srv = encode_object([(0,1), (1,"Local Server"), (2,"127.0.0.1"), (3,9555), (4,1), (6,1)])
+                # Tag 2 eshte lista e serverave ne update_game_server.response
+                body = encode_object([(2, srv)])
+                header = encode_object([(1, session)])
+                conn.sendall(struct.pack(">H", len(sproto_pack(header + body))) + sproto_pack(header + body))
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Login Error: {e}")
     finally:
         conn.close()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(("0.0.0.0", PORT))
-server.listen(5)
+server.listen(10)
 print(f"LOGIN SERVER {PORT} ON")
 while True:
     c, a = server.accept()
