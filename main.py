@@ -69,12 +69,12 @@ def encode_sproto(fields):
             if 0 <= value <= 32766: header += struct.pack("<H", (value + 1) * 2)
             else:
                 header += struct.pack("<H", 0)
-                body += struct.pack("<I", 4) + struct.pack("<i", value)
+                body += struct.pack("<I", 8) + struct.pack("<q", value)
         elif isinstance(value, (str, bytes, bytearray)):
             if isinstance(value, str): value = value.encode('utf-8')
             header += struct.pack("<H", 0)
             body += struct.pack("<I", len(value)) + value
-        elif isinstance(value, list): # Handle Sproto Lists (like server list)
+        elif isinstance(value, list):
             header += struct.pack("<H", 0)
             list_bin = bytearray()
             for item in value:
@@ -102,7 +102,14 @@ def decode_header(data):
     return msg_type, session
 
 def client_handler(conn, addr):
-    print(f"[+] Login Client: {addr}")
+    print(f"[+] Connected: {addr}")
+    # 1. PUSH ACCOUNT IMMEDIATELY (Tag 660)
+    # Kjo mbush kutite Account/Password automatikisht!
+    acc_id = random.randint(100000000000, 999999999999)
+    push_pkt = sproto_pack(encode_sproto([(0, 660)]) + encode_sproto([(0, acc_id)]))
+    conn.sendall(struct.pack(">H", len(push_pkt)) + push_pkt)
+    print(f"Pushed Account: {acc_id}")
+
     try:
         while True:
             h = conn.recv(2)
@@ -114,27 +121,15 @@ def client_handler(conn, addr):
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
 
-            if msg_type == 2: # Visitor - AUTO ACCOUNT
-                uid = "".join([str(random.randint(0, 9)) for _ in range(12)])
-                key = "".join([str(random.randint(0, 9)) for _ in range(10)])
-                while uid in accounts: uid = "".join([str(random.randint(0, 9)) for _ in range(12)])
-                accounts[uid] = key
-                save_accounts(accounts)
-                print(f"AUTO-CREATE: ID={uid} PASS={key}")
-
-                resp = encode_sproto([(0, uid), (1, key), (2, 0)])
-                pkg_h = encode_sproto([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
-
-            elif msg_type == 3: # Verify
+            if msg_type == 3: # Verify Request
                 srv = encode_sproto([(0, 1), (1, "Main Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
-                resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017"), (6, "0")])
-                pkg_h = encode_sproto([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
+                resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017")])
+                header = encode_sproto([(1, session)])
+                conn.sendall(struct.pack(">H", len(sproto_pack(header + resp))) + sproto_pack(header + resp))
 
             elif msg_type == 218: # Heartbeat
-                pkg_h = encode_sproto([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h))) + sproto_pack(pkg_h))
+                header = encode_sproto([(1, session)])
+                conn.sendall(struct.pack(">H", len(sproto_pack(header))) + sproto_pack(header))
 
     except: pass
     finally: conn.close()
