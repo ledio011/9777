@@ -23,6 +23,7 @@ def save_accounts(accounts):
 accounts = load_accounts()
 
 def sproto_pack(data):
+    # Ensure data is 8-byte aligned for the packing loop
     padding = (8 - (len(data) % 8)) % 8
     data += b'\x00' * padding
     out = bytearray()
@@ -54,6 +55,7 @@ def sproto_unpack(data):
     return bytes(out)
 
 def encode_sproto(fields):
+    if not fields: return struct.pack("<H", 0)
     fields.sort(key=lambda x: x[0])
     header = bytearray()
     body = bytearray()
@@ -70,18 +72,18 @@ def encode_sproto(fields):
                 header += struct.pack("<H", (value + 1) * 2)
             else:
                 header += struct.pack("<H", 0)
-                body += struct.pack("<I", 4) + struct.pack("<I", value)
+                body += struct.pack("<I", 4) + struct.pack("<i", value)
         elif isinstance(value, (str, bytes, bytearray)):
             if isinstance(value, str): value = value.encode('utf-8')
             header += struct.pack("<H", 0)
             body += struct.pack("<I", len(value)) + value
         elif isinstance(value, list):
             header += struct.pack("<H", 0)
-            list_body = bytearray()
+            list_data = bytearray()
             for item in value:
                 if isinstance(item, (bytes, bytearray)):
-                    list_body += struct.pack("<I", len(item)) + item
-            body += struct.pack("<I", len(list_body)) + list_body
+                    list_data += struct.pack("<I", len(item)) + item
+            body += struct.pack("<I", len(list_data)) + list_data
         last_tag = tag
     return struct.pack("<H", len(header) // 2) + header + body
 
@@ -112,34 +114,43 @@ def client_handler(conn, addr):
             data = b""
             while len(data) < size:
                 data += conn.recv(size - len(data))
+
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
+            print(f"Login RX Type: {msg_type}, Session: {session}")
 
-            if msg_type == 2: # Visitor
-                uid = str(random.randint(100000000000, 999999999999999))
-                key = str(random.randint(10000000, 999999999999))
-                while uid in accounts: uid = str(random.randint(100000000000, 999999999999999))
+            if msg_type == 2: # Visitor Request
+                uid = str(random.randint(100000000000, 999999999999)) # 12 digits
+                key = str(random.randint(1000000000, 9999999999))   # 10 digits
+                while uid in accounts: uid = str(random.randint(100000000000, 999999999999))
+
                 accounts[uid] = key
                 save_accounts(accounts)
-                print(f"ID: {uid}, Key: {key}")
+                print(f"CREATE: ID={uid} PASS={key}")
+
+                # Tag 0: id, Tag 1: key, Tag 2: state
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)])
                 pkg_h = encode_sproto([(1, session)])
                 packed = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(packed)) + packed)
 
-            elif msg_type == 3: # Verify
-                srv = encode_sproto([(0, 1), (1, "Official Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
-                resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017"), (6, "0")])
+            elif msg_type == 3: # Verify Request
+                srv = encode_sproto([(0, 1), (1, "Local Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
+                # Tag 0: state (0=success), Tag 1: session, Tag 2: srv_list, Tag 5: version
+                resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017"), (6, "0"), (8, "Welcome!")])
                 pkg_h = encode_sproto([(1, session)])
                 packed = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(packed)) + packed)
 
-            elif msg_type == 218 or msg_type == 7:
+            elif msg_type == 218 or msg_type == 7: # Heartbeat / Update
                 pkg_h = encode_sproto([(1, session)])
-                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h))) + sproto_pack(pkg_h))
+                packed = sproto_pack(pkg_h + encode_sproto([]))
+                conn.sendall(struct.pack(">H", len(packed)) + packed)
 
-    except: pass
-    finally: conn.close()
+    except Exception as e:
+        print(f"Login Error: {e}")
+    finally:
+        conn.close()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
