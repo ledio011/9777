@@ -8,19 +8,22 @@ PORT = 9777
 
 
 # ==========================
-# SPROTO 0 PACK
+# SPROTO PACK
 # ==========================
 
 def sproto_pack(data):
+
     out = bytearray()
 
     for i in range(0, len(data), 8):
+
         chunk = data[i:i+8]
 
         mask = 0
         values = bytearray()
 
         for j, b in enumerate(chunk):
+
             if b != 0:
                 mask |= (1 << j)
                 values.append(b)
@@ -31,31 +34,82 @@ def sproto_pack(data):
     return bytes(out)
 
 
+
 # ==========================
-# SPROTO HELPERS
+# SPROTO ENCODE
 # ==========================
 
-def integer(value):
-    return struct.pack("<H", (value + 1) * 2)
+def int_encode(v):
+
+    return struct.pack(
+        "<H",
+        (v + 1) * 2
+    )
 
 
-def string_field(text):
-    data = text.encode("utf-8")
-    return struct.pack("<I", len(data)) + data
+
+def write_string(value):
+
+    b = value.encode("utf-8")
+
+    return (
+        struct.pack("<I", len(b))
+        +
+        b
+    )
 
 
-def make_header(fields):
-    result = struct.pack("<H", len(fields))
 
-    for f in fields:
-        if isinstance(f, int):
-            result += integer(f)
-        elif isinstance(f, str):
-            result += struct.pack("<H", 0)
-        else:
-            result += struct.pack("<H", 0)
+def encode_object(fields):
 
-    return result
+    header = bytearray()
+    body = bytearray()
+
+    last = -1
+
+
+    for tag, value in fields:
+
+        skip = tag - last - 1
+
+
+        if skip > 0:
+
+            record = (skip - 1) * 2 + 1
+            header += struct.pack("<H", record)
+
+
+
+        if isinstance(value, int):
+
+            header += int_encode(value)
+
+
+        elif isinstance(value, str):
+
+            header += struct.pack("<H", 0)
+            body += write_string(value)
+
+
+        elif isinstance(value, bytes):
+
+            header += struct.pack("<H", 0)
+            body += struct.pack("<I", len(value))
+            body += value
+
+
+        last = tag
+
+
+
+    return (
+        struct.pack("<H", len(header)//2)
+        +
+        header
+        +
+        body
+    )
+
 
 
 # ==========================
@@ -64,81 +118,119 @@ def make_header(fields):
 
 def package_response(session):
 
-    # Package:
-    # tag0 = type absent
-    # tag1 = session
+    # response:
+    # tag 1 = session
 
-    return (
-        struct.pack("<H", 2) +
-        struct.pack("<H", 0) +
-        struct.pack("<H", 1) +
-        integer(session)
-    )
+    return encode_object([
+        (1, session)
+    ])
+
 
 
 # ==========================
 # VISITOR RESPONSE
+# TAG 2
 # ==========================
 
 def visitor_response(session):
 
-    uid = str(random.randint(100000000000,999999999999))
-    pwd = str(random.randint(1000000000,9999999999))
+
+    uid = str(
+        random.randint(
+            10**14,
+            10**17-1
+        )
+    )
+
+
+    key = str(
+        random.randint(
+            10**11,
+            10**14-1
+        )
+    )
+
 
     print("")
     print("================")
     print("ACCOUNT CREATED")
     print("ID :", uid)
-    print("PWD:", pwd)
+    print("KEY:", key)
     print("================")
 
 
-    body = make_header([
-        "",
-        "",
+
+    body = encode_object([
+
+        (0, uid),   # id
+
+        (1, key),   # key/password
+
+        (2, 1)      # state success
+
     ])
 
-    body += string_field(uid)
-    body += string_field(pwd)
 
 
-    raw = package_response(session) + body
+    raw = (
+        package_response(session)
+        +
+        body
+    )
+
+
 
     packed = sproto_pack(raw)
 
-    return struct.pack(">H", len(packed)) + packed
+
+
+    return (
+        struct.pack(">H", len(packed))
+        +
+        packed
+    )
 
 
 
 # ==========================
 # VERIFY RESPONSE
+# TAG 3
 # ==========================
 
 def verify_response(session):
 
 
-    body = make_header([
-        0,
-        1,
-        "",
-        "",
-        0,
-        "1.012.017",
-        "0",
-        0,
-        "Welcome",
-        "1"
+    body = encode_object([
+
+        (0,1),              # type
+
+        (1,"1.012.017"),    # version
+
+        (2,"0"),            # data version
+
+        (3,1)               # server level
+
     ])
 
 
-    body += string_field("Welcome")
+
+    raw = (
+        package_response(session)
+        +
+        body
+    )
 
 
-    raw = package_response(session) + body
 
     packed = sproto_pack(raw)
 
-    return struct.pack(">H", len(packed)) + packed
+
+
+    return (
+        struct.pack(">H", len(packed))
+        +
+        packed
+    )
 
 
 
@@ -146,53 +238,71 @@ def verify_response(session):
 # CLIENT
 # ==========================
 
-def client_thread(sock, addr):
+def client(conn,addr):
 
-    print("[+] Connected:", addr)
+    print("[+] Connected:",addr)
+
 
     try:
 
+
         while True:
 
-            data = sock.recv(4096)
+
+            data = conn.recv(4096)
+
 
             if not data:
                 break
 
 
-            print("RX:", data.hex())
+
+            print(
+                "RX:",
+                data.hex()
+            )
+
 
 
             # visitor request
-            if len(data) > 0:
 
-                print("Sending verify response")
+            if True:
 
-                sock.sendall(
+
+                conn.sendall(
                     visitor_response(1)
                 )
 
-                sock.sendall(
+
+                conn.sendall(
                     verify_response(2)
                 )
+
 
                 break
 
 
+
     except Exception as e:
 
-        print("ERROR:", e)
+        print(
+            "ERROR:",
+            e
+        )
 
 
     finally:
 
-        sock.close()
-        print("Disconnected")
+        conn.close()
+
+        print(
+            "Disconnected"
+        )
 
 
 
 # ==========================
-# SERVER
+# SERVER START
 # ==========================
 
 server = socket.socket(
@@ -200,17 +310,23 @@ server = socket.socket(
     socket.SOCK_STREAM
 )
 
+
 server.setsockopt(
     socket.SOL_SOCKET,
     socket.SO_REUSEADDR,
     1
 )
 
+
+
 server.bind(
     ("0.0.0.0", PORT)
 )
 
-server.listen(20)
+
+
+server.listen(50)
+
 
 
 print("======================")
@@ -218,12 +334,15 @@ print("LOGIN SERVER 9777 ON")
 print("======================")
 
 
+
 while True:
 
-    c,a = server.accept()
+
+    conn,addr = server.accept()
+
 
     threading.Thread(
-        target=client_thread,
-        args=(c,a),
+        target=client,
+        args=(conn,addr),
         daemon=True
     ).start()
