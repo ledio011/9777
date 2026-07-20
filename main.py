@@ -21,10 +21,9 @@ def save_accounts(accounts):
 accounts = load_accounts()
 
 def sproto_pack(data):
-    # RREGULLIMI: Sproto kërkon blloqe 8-byte
+    # Padding to 8-byte chunks
     padding = (8 - (len(data) % 8)) % 8
     data += b'\x00' * padding
-
     out = bytearray()
     for i in range(0, len(data), 8):
         chunk = data[i:i+8]
@@ -53,30 +52,49 @@ def sproto_unpack(data):
                 out.append(0)
     return bytes(out)
 
-def encode_object(fields):
+def encode_sproto(fields):
+    # Sort fields by tag (CRITICAL for Sproto)
+    fields.sort(key=lambda x: x[0])
     header = bytearray()
     body = bytearray()
-    last = -1
+    last_tag = -1
+
     for tag, value in fields:
-        skip = tag - last - 1
+        # Skip tags if necessary
+        skip = tag - last_tag - 1
         if skip > 0:
             header += struct.pack("<H", (skip - 1) * 2 + 1)
-        if isinstance(value, int):
-            header += struct.pack("<H", (value + 1) * 2)
-        elif isinstance(value, str):
+
+        if value is None: # Empty List/Map
             header += struct.pack("<H", 0)
-            b = value.encode("utf-8")
-            body += struct.pack("<I", len(b)) + b
-        elif isinstance(value, bytes):
+            body += struct.pack("<I", 0)
+        elif isinstance(value, int):
+            # Small integers fit in header
+            if 0 <= value <= 32766:
+                header += struct.pack("<H", (value + 1) * 2)
+            else: # Large integers in body
+                header += struct.pack("<H", 0)
+                body += struct.pack("<I", 4) + struct.pack("<I", value)
+        elif isinstance(value, (str, bytes)):
+            if isinstance(value, str):
+                value = value.encode('utf-8')
             header += struct.pack("<H", 0)
             body += struct.pack("<I", len(value)) + value
-        last = tag
+        elif isinstance(value, list): # LIST OF OBJECTS
+            header += struct.pack("<H", 0)
+            list_body = bytearray()
+            for item in value:
+                if isinstance(item, bytes): # Already encoded object
+                    list_body += struct.pack("<I", len(item)) + item
+            body += struct.pack("<I", len(list_body)) + list_body
+        last_tag = tag
+
     return struct.pack("<H", len(header) // 2) + header + body
 
 def decode_header(data):
     if len(data) < 2: return None, None
-    h_len = struct.unpack("<H", data[:2])[0]
-    header = data[2:2+h_len*2]
+    fn = struct.unpack("<H", data[:2])[0]
+    header = data[2:2+fn*2]
     msg_type, session = None, None
     idx, curr_tag = 0, 0
     while idx < len(header):
@@ -103,31 +121,37 @@ def client_handler(conn, addr):
 
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
-            print(f"Login RX Type: {msg_type}")
+            print(f"Login RX Type: {msg_type}, Session: {session}")
 
-            if msg_type == 2: # Visitor
+            if msg_type == 2: # Visitor Request
                 uid = str(random.randint(100000000000, 999999999999999))
                 key = str(random.randint(10000000, 999999999999))
                 accounts[uid] = key
                 save_accounts(accounts)
 
-                body = encode_object([(0, uid), (1, key), (2, 0)])
-                header = encode_object([(1, session)]) if session else encode_object([])
-                packed = sproto_pack(header + body)
+                resp_body = encode_sproto([(0, uid), (1, key), (2, 0)])
+                pkg_header = encode_sproto([(1, session)])
+                packed = sproto_pack(pkg_header + resp_body)
+                conn.sendall(struct.pack(">H", len(packed)) + packed)
+                print(f"Generated ID: {uid}, Key: {key}")
+
+            elif msg_type == 3: # Verify Request
+                # Game Server Object
+                srv_obj = encode_sproto([
+                    (0, 1), (1, "Main Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)
+                ])
+                # List of Servers (Tag 2 is a List in Sproto)
+                resp_body = encode_sproto([
+                    (0, 0), (1, session), (2, [srv_obj]), (5, "1.012.017")
+                ])
+                pkg_header = encode_sproto([(1, session)])
+                packed = sproto_pack(pkg_header + resp_body)
                 conn.sendall(struct.pack(">H", len(packed)) + packed)
 
-            elif msg_type == 3: # Verify
-                # Tag 2 eshte IP e Game Server (127.0.0.1 ose Railway IP)
-                srv = encode_object([(0, 1), (1, "Main Server"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
-                body = encode_object([(0, 0), (1, session), (2, srv), (5, "1.012.017")])
-                header = encode_object([(1, session)])
-                packed = sproto_pack(header + body)
-                conn.sendall(struct.pack(">H", len(packed)) + packed)
-
-            elif msg_type == 218: # Heartbeat
-                body = encode_object([(0, 0), (1, 0)]) # Dummy time
-                header = encode_object([(1, session)])
-                packed = sproto_pack(header + body)
+            elif msg_type == 218 or msg_type == 7: # Heartbeat or Update Server
+                pkg_header = encode_sproto([(1, session)])
+                resp_body = encode_sproto([]) # Empty success
+                packed = sproto_pack(pkg_header + resp_body)
                 conn.sendall(struct.pack(">H", len(packed)) + packed)
 
     except Exception as e:
@@ -139,7 +163,7 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(("0.0.0.0", PORT))
 server.listen(10)
-print(f"LOGIN SERVER {PORT} ON")
+print(f"LOGIN SERVER {PORT} READY")
 while True:
     c, a = server.accept()
     threading.Thread(target=client_handler, args=(c, a), daemon=True).start()
