@@ -139,7 +139,7 @@ def client_handler(conn, addr):
                 while True:
                     uid = str(random.randint(1000000000, 9999999999))
                     if uid not in accounts: break
-                
+
                 key = str(random.randint(1000000000, 9999999999))
                 accounts[uid] = key; save_accounts(accounts)
                 print(f"[AUTO REG] New Unique Account: ID={uid} KEY={key}")
@@ -154,9 +154,9 @@ def client_handler(conn, addr):
                 req_fields = decode_body(raw, offset)
                 req_id = str(req_fields.get(0, ""))
                 req_key = str(req_fields.get(1, ""))
-                
+
                 print(f"[VERIFY] Client ID: {req_id} KEY: {req_key}")
-                
+
                 # Kontrollojme nese ID ekziston dhe nese KEY perputhet
                 resp_state = 0 # OK
                 if req_id not in accounts or accounts[req_id] != req_key:
@@ -166,18 +166,18 @@ def client_handler(conn, addr):
                     print(f"[VERIFY] Access Granted.")
 
                 s1 = encode_sproto([(0,1),(1,"Vice City Main"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                
+
                 # verfiy.response: state(0), session(1), game_server(2:list), etc.
                 resp = encode_sproto([
-                    (0, resp_state), 
-                    (1, random.randint(100000, 999999)), 
-                    (2, [s1]), 
-                    (3, "1"), 
-                    (5, "1.012.017"), 
-                    (6, "167"), 
+                    (0, resp_state),
+                    (1, random.randint(100000, 999999)),
+                    (2, [s1]),
+                    (3, "1"),
+                    (5, "1.012.017"),
+                    (6, "167"),
                     (7, 0)
                 ], fn=12)
-                
+
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(full)) + full)
