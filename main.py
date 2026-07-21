@@ -22,8 +22,11 @@ def load_accounts():
     return {}
 
 def save_accounts(accounts):
-    with open(DB_FILE, "w") as f:
-        json.dump(accounts, f, indent=4)
+    try:
+        with open(DB_FILE, "w") as f:
+            json.dump(accounts, f, indent=4)
+    except Exception as e:
+        print(f"Error saving accounts: {e}")
 
 accounts = load_accounts()
 
@@ -34,12 +37,14 @@ def sproto_pack(data):
         chunk = data[i:i+8]
         if len(chunk) < 8:
             chunk += b'\x00' * (8 - len(chunk))
+
         mask = 0
         values = bytearray()
         for j in range(8):
             if chunk[j] != 0:
                 mask |= (1 << j)
                 values.append(chunk[j])
+
         if mask == 0xFF:
             out.append(0xFF)
             out.append(0)
@@ -72,18 +77,23 @@ def sproto_unpack(data):
     return bytes(out)
 
 def encode_sproto(fields, is_root=False):
-    if not fields: return struct.pack("<H", 0) if is_root else b""
+    if not fields and not is_root: return b""
     fields.sort(key=lambda x: x[0])
+
     header = bytearray()
     body = bytearray()
     last_tag = -1
+
     for tag, value in fields:
         skip = tag - last_tag - 1
-        if skip > 0: header += struct.pack("<H", (skip - 1) * 2 + 1)
+        if skip > 0:
+            header += struct.pack("<H", (skip - 1) * 2 + 1)
+
         if value is None:
             header += struct.pack("<H", 0)
         elif isinstance(value, int):
-            if 0 <= value <= 32766: header += struct.pack("<H", (value + 1) * 2)
+            if 0 <= value <= 32766:
+                header += struct.pack("<H", (value + 1) * 2)
             else:
                 header += struct.pack("<H", 0)
                 body += struct.pack("<I", 8) + struct.pack("<q", value)
@@ -98,8 +108,10 @@ def encode_sproto(fields, is_root=False):
                 list_bin += struct.pack("<I", len(item)) + item
             body += struct.pack("<I", len(list_bin)) + list_bin
         last_tag = tag
+
     res = bytearray()
-    if is_root: res += struct.pack("<H", len(header) // 2)
+    if is_root:
+        res += struct.pack("<H", len(header) // 2)
     res += header
     res += body
     return bytes(res)
@@ -113,7 +125,8 @@ def decode_header(data):
         idx, curr_tag = 0, 0
         while idx < len(header):
             val = struct.unpack("<H", header[idx:idx+2])[0]
-            if val & 1: curr_tag += (val >> 1) + 1
+            if val & 1:
+                curr_tag += (val >> 1) + 1
             else:
                 real_val = (val >> 1) - 1
                 if curr_tag == 0: msg_type = real_val
@@ -124,7 +137,7 @@ def decode_header(data):
     except: return None, None
 
 def client_handler(conn, addr):
-    print(f"[+] Connection from: {addr}")
+    print(f"[+] Login connection: {addr}")
     try:
         while True:
             h = conn.recv(2)
@@ -139,23 +152,26 @@ def client_handler(conn, addr):
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
             if msg_type is None: continue
-            print(f"[RX] Message Tag: {msg_type}")
+            print(f"[RX] Tag: {msg_type} Session: {session}")
 
-            if msg_type == 2: # Visitor Request (Gjeneron automatikisht llogari te re)
+            if msg_type == 2: # Visitor Request
                 prefix = random.choice(["68", "69"])
                 uid = prefix + "".join([str(random.randint(0, 9)) for _ in range(10)])
                 key = "".join([str(random.randint(0, 9)) for _ in range(10)])
                 accounts[uid] = key
                 save_accounts(accounts)
-                print(f"[ACCOUNT] NEW: ID={uid} PASS={key}")
+                print(f"[NEW ACCOUNT] ID={uid} PASS={key}")
+
+                # RREGULLIM: Shtuar is_root=True ne resp qe loja ta lexoje sakt
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)], is_root=True)
                 pkg_h = encode_sproto([(1, session)], is_root=True)
                 full_pkt = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(full_pkt)) + full_pkt)
 
             elif msg_type == 3: # Verify Request
-                # Pranojme ID ekzistuese qe ka loja
-                srv = encode_sproto([(0, 1), (1, "Railway Server"), (2, GAME_SERVER_HOST), (3, GAME_SERVER_PORT), (4, 1), (10, 1)], is_root=True)
+                srv = encode_sproto([(0, 1), (1, "Main Server"), (2, GAME_SERVER_HOST), (3, GAME_SERVER_PORT), (4, 1), (10, 1)], is_root=True)
+
+                # RREGULLIM: Shtuar is_root=True ne resp
                 resp = encode_sproto([
                     (0, 0), (1, session), (2, [srv]), (3, "1"), (5, "1.012.017"), (6, "0"), (7, 0)
                 ], is_root=True)
@@ -169,7 +185,7 @@ def client_handler(conn, addr):
                 conn.sendall(struct.pack(">H", len(full_pkt)) + full_pkt)
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Login Error: {e}")
     finally:
         conn.close()
 
@@ -177,7 +193,7 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(("0.0.0.0", PORT))
 server.listen(10)
-print(f"LOGIN SERVER ACTIVE ON PORT {PORT}")
+print(f"LOGIN SERVER ON PORT {PORT}")
 while True:
     c, a = server.accept()
     threading.Thread(target=client_handler, args=(c, a), daemon=True).start()
