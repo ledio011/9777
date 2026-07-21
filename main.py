@@ -50,6 +50,7 @@ def sproto_unpack(data):
         mask = data[i]
         i += 1
         if mask == 0xFF:
+            if i >= len(data): break
             n = (data[i] + 1) * 8
             i += 1
             out.extend(data[i:i+n])
@@ -57,19 +58,24 @@ def sproto_unpack(data):
         else:
             for bit in range(8):
                 if mask & (1 << bit):
-                    out.append(data[i]); i += 1
+                    if i < len(data):
+                        out.append(data[i]); i += 1
                 else: out.append(0)
     return bytes(out)
 
-def encode_sproto(fields, fn=None):
+def encode_sproto(fields):
+    """Implementim i sakte me FN header per cdo objekt"""
     if not fields: return struct.pack("<H", 0)
     fields.sort(key=lambda x: x[0])
-    if fn is None: fn = fields[-1][0] + 1
-    header, body = bytearray(), bytearray()
+
+    header = bytearray()
+    body = bytearray()
     last_tag = -1
+
     for tag, value in fields:
         skip = tag - last_tag - 1
         if skip > 0: header += struct.pack("<H", (skip - 1) * 2 + 1)
+
         if value is None: header += struct.pack("<H", 0)
         elif isinstance(value, int):
             if 0 <= value <= 32766: header += struct.pack("<H", (value + 1) * 2)
@@ -86,7 +92,7 @@ def encode_sproto(fields, fn=None):
             for item in value: list_bin += struct.pack("<I", len(item)) + item
             body += struct.pack("<I", len(list_bin)) + list_bin
         last_tag = tag
-    while (len(header) // 2) < fn: header += struct.pack("<H", 0); # Fill missing tags
+
     return struct.pack("<H", len(header) // 2) + header + body
 
 def decode_header(data):
@@ -106,7 +112,7 @@ def decode_header(data):
     return msg_type, session
 
 def client_handler(conn, addr):
-    print(f"[+] Login Client: {addr}")
+    print(f"[+] Login connection: {addr}")
     try:
         while True:
             h = conn.recv(2)
@@ -118,30 +124,30 @@ def client_handler(conn, addr):
             msg_type, session = decode_header(raw)
             if msg_type is None: continue
 
-            if msg_type == 2: # Visitor
+            if msg_type == 2: # Visitor Request
                 uid = random.choice(["68", "69"]) + str(int(time.time()))[-10:]
                 key = str(random.randint(1000000000, 9999999999))
                 accounts[uid] = key; save_accounts(accounts)
-                print(f"[NEW ACC] ID={uid} PASS={key}")
-                # visitor.response fn=3: id(0), key(1), state(2)
-                resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
-                pkg_h = encode_sproto([(1, session)], fn=2)
+                print(f"[AUTO-ACC] ID={uid} PASS={key}")
+
+                resp = encode_sproto([(0, uid), (1, key), (2, 0)])
+                pkg_h = encode_sproto([(1, session)])
                 full = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(full)) + full)
 
-            elif msg_type == 3: # Verify
-                # Europe, America, Asia. Tags: id(0), name(1), ip(2), port(3), state(4), new(10)
-                s1 = encode_sproto([(0,1),(1,"Europe"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                s2 = encode_sproto([(0,2),(1,"America"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                s3 = encode_sproto([(0,3),(1,"Asia"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                # verify.response fn=12: state(0), session(1), game_server(2), user_server(3), version(5), data(6), flag(7)
-                resp = encode_sproto([(0,0),(1,session),(2,[s1,s2,s3]),(3,"1"),(5,"1.012.017"),(6,"0"),(7,0)], fn=12)
-                pkg_h = encode_sproto([(1, session)], fn=2)
+            elif msg_type == 3: # Verify Request
+                # Implementimi i 3 serverave te dëshiruar
+                s1 = encode_sproto([(0,1),(1,"Europe"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)])
+                s2 = encode_sproto([(0,2),(1,"America"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)])
+                s3 = encode_sproto([(0,3),(1,"Asia"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)])
+
+                resp = encode_sproto([(0,0),(1,session),(2,[s1,s2,s3]),(3,"1"),(5,"1.012.017"),(6,"0"),(7,0)])
+                pkg_h = encode_sproto([(1, session)])
                 full = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(full)) + full)
 
             elif msg_type == 218: # Heartbeat
-                pkg_h = encode_sproto([(1, session)], fn=2)
+                pkg_h = encode_sproto([(1, session)])
                 full = sproto_pack(pkg_h); conn.sendall(struct.pack(">H", len(full)) + full)
 
     except Exception as e: print(f"Login Error: {e}")
