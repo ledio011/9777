@@ -115,24 +115,27 @@ def client_handler(conn, addr):
             msg_type, session = decode_header(raw)
 
             if msg_type == 2: # Visitor Request
-                uid = "".join([str(random.randint(0, 9)) for _ in range(12)])
+                # UID fillon me 68 ose 69 dhe ka 12 shifra në total
+                prefix = random.choice(["68", "69"])
+                uid = prefix + "".join([str(random.randint(0, 9)) for _ in range(10)])
                 key = "".join([str(random.randint(0, 9)) for _ in range(10)])
                 accounts[uid] = key
                 save_accounts(accounts)
-                print(f"NEW ACC: ID={uid} PASS={key}")
+                print(f"[ACCOUNT] New visitor account: ID={uid} PASS={key}")
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)])
                 pkg_h = encode_sproto([(1, session)])
                 conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
 
             elif msg_type == 3: # Verify Request (Complete)
-                srv = encode_sproto([(0, 1), (1, "Main"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
+                # Përdorim të dhënat e Railway që dërgove për Game Server (Porta 48282)
+                srv = encode_sproto([(0, 1), (1, "Main"), (2, "tokaido.proxy.rlwy.net"), (3, 48282), (4, 1), (10, 1)])
                 resp = encode_sproto([
-                    (0, 0),             # state
+                    (0, 0),             # state (0 = Success)
                     (1, session),       # session
                     (2, [srv]),         # game_server list
                     (3, "1"),           # user_server
                     (5, "1.012.017"),    # versionCode
-                    (6, "0"),           # dataVersionCode (0 = no download)
+                    (6, "0"),           # dataVersionCode
                     (7, 0)              # downloadFlag
                 ])
                 pkg_h = encode_sproto([(1, session)])
