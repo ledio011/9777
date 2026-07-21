@@ -78,7 +78,7 @@ def encode_sproto(fields):
             header += struct.pack("<H", 0)
             list_bin = bytearray()
             for item in value:
-                if isinstance(item, bytes):
+                if isinstance(item, (bytes, bytearray)):
                     list_bin += struct.pack("<I", len(item)) + item
             body += struct.pack("<I", len(list_bin)) + list_bin
         last_tag = tag
@@ -114,28 +114,38 @@ def client_handler(conn, addr):
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
 
-            if msg_type == 2: # Visitor
+            if msg_type == 2: # Visitor Request
                 uid = "".join([str(random.randint(0, 9)) for _ in range(12)])
                 key = "".join([str(random.randint(0, 9)) for _ in range(10)])
                 accounts[uid] = key
                 save_accounts(accounts)
-                print(f"AUTO-CREATE: ID={uid} PASS={key}")
+                print(f"NEW ACC: ID={uid} PASS={key}")
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)])
                 pkg_h = encode_sproto([(1, session)])
                 conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
 
-            elif msg_type == 3: # Verify
+            elif msg_type == 3: # Verify Request (Complete)
                 srv = encode_sproto([(0, 1), (1, "Main"), (2, "127.0.0.1"), (3, 9555), (4, 1), (6, 1)])
-                resp = encode_sproto([(0, 0), (1, session), (2, [srv]), (5, "1.012.017")])
+                resp = encode_sproto([
+                    (0, 0),             # state
+                    (1, session),       # session
+                    (2, [srv]),         # game_server list
+                    (3, "1"),           # user_server
+                    (5, "1.012.017"),    # versionCode
+                    (6, "0"),           # dataVersionCode (0 = no download)
+                    (7, 0)              # downloadFlag
+                ])
                 pkg_h = encode_sproto([(1, session)])
                 conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h + resp))) + sproto_pack(pkg_h + resp))
 
-            elif msg_type == 218:
+            elif msg_type == 218: # Heartbeat
                 pkg_h = encode_sproto([(1, session)])
                 conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h))) + sproto_pack(pkg_h))
 
-    except: pass
-    finally: conn.close()
+    except Exception as e:
+        print(f"Login Error: {e}")
+    finally:
+        conn.close()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
