@@ -6,7 +6,7 @@ import json
 import os
 import time
 
-# Porta dinamike e Railway
+# Config
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
 GAME_HOST = "tokaido.proxy.rlwy.net"
@@ -22,6 +22,7 @@ def load_accounts():
 def save_accounts(accs):
     try:
         with open(DB_FILE, "w") as f: json.dump(accs, f, indent=4)
+        print("[DB] Accounts updated.")
     except: pass
 
 accounts = load_accounts()
@@ -88,41 +89,25 @@ def encode_sproto(fields, fn=None):
     res += body
     return bytes(res)
 
-def decode_header(data):
-    if len(data) < 2: return None, None, 0
-    fn = struct.unpack("<H", data[:2])[0]
-    header = data[2:2+fn*2]
-    msg_type, session, idx, curr_tag = None, None, 0, 0
-    while idx < len(header):
-        val = struct.unpack("<H", header[idx:idx+2])[0]
-        if val & 1: curr_tag += (val >> 1) + 1
-        else:
-            real_val = (val >> 1) - 1
-            if curr_tag == 0: msg_type = real_val
-            if curr_tag == 1: session = real_val
-            curr_tag += 1
-        idx += 2
-    return msg_type, session, 2 + fn*2
-
-def decode_body(data, offset):
+def decode_sproto(data, offset=0):
     if len(data) < offset + 2: return {}
     fn = struct.unpack("<H", data[offset:offset+2])[0]
-    h_start, b_ptr, curr_tag = offset + 2, offset + 2 + fn*2, 0
+    h_ptr, b_ptr, curr_tag = offset + 2, offset + 2 + fn*2, 0
     fields = {}
     for i in range(fn):
-        v = struct.unpack("<H", data[h_start + i*2:h_start + i*2+2])[0]
+        v = struct.unpack("<H", data[h_ptr + i*2:h_ptr + i*2+2])[0]
         if v == 0:
             if b_ptr + 4 <= len(data):
                 l = struct.unpack("<I", data[b_ptr:b_ptr+4])[0]
-                b_ptr += 4
-                fields[curr_tag] = data[b_ptr:b_ptr+l].decode('utf-8', 'ignore')
-                b_ptr += l
-        elif v > 1: fields[curr_tag] = (v >> 1) - 1
+                fields[curr_tag] = data[b_ptr+4:b_ptr+4+l]; b_ptr += 4 + l
+        elif v == 1: pass
+        elif v & 1: curr_tag += (v >> 1)
+        else: fields[curr_tag] = (v >> 1) - 1
         curr_tag += 1
     return fields
 
 def client_handler(conn, addr):
-    print(f"[+] Connection: {addr}")
+    print(f"[+] Login Connect: {addr}")
     try:
         while True:
             h = conn.recv(2)
@@ -131,58 +116,37 @@ def client_handler(conn, addr):
             data = b""
             while len(data) < size: data += conn.recv(size - len(data))
             raw = sproto_unpack(data)
-            msg_type, session, offset = decode_header(raw)
-            if msg_type is None: continue
+            
+            header = decode_sproto(raw, 0)
+            msg_type, session = header.get(0), header.get(1)
+            
+            body_off = 2 + (struct.unpack("<H", raw[:2])[0] * 2)
+            body = decode_sproto(raw, body_off)
 
-            if msg_type == 2: # visitor (Tag 2)
-                # Gjenerojme nje ID numerike 10-shifrore qe nuk ekziston
+            if msg_type == 2: # visitor
                 while True:
-                    uid = str(random.randint(1000000000, 9999999999))
+                    uid = random.choice(["67", "68", "69"]) + str(random.randint(10000000, 99999999))
                     if uid not in accounts: break
-
                 key = str(random.randint(1000000000, 9999999999))
                 accounts[uid] = key; save_accounts(accounts)
-                print(f"[AUTO REG] New Unique Account: ID={uid} KEY={key}")
-
-                # visitor.response: id(0:string), key(1:string), state(2:integer)
+                print(f"[GUEST] Created Account: {uid}")
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
                 pkg_h = encode_sproto([(1, session)], fn=2)
-                full = sproto_pack(pkg_h + resp)
-                conn.sendall(struct.pack(">H", len(full)) + full)
+                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h+resp))) + sproto_pack(pkg_h+resp))
 
-            elif msg_type == 3: # verfiy (Tag 3)
-                req_fields = decode_body(raw, offset)
-                req_id = str(req_fields.get(0, ""))
-                req_key = str(req_fields.get(1, ""))
-
-                print(f"[VERIFY] Client ID: {req_id} KEY: {req_key}")
-
-                # Kontrollojme nese ID ekziston dhe nese KEY perputhet
-                resp_state = 0 # OK
-                if req_id not in accounts or accounts[req_id] != req_key:
-                    print(f"[VERIFY] Invalid or Not Found. Forcing RE-REGISTRATION.")
-                    resp_state = 1 # State 1 e detyron Unity-n te therrase visitor.request automatikisht
-                else:
-                    print(f"[VERIFY] Access Granted.")
-
+            elif msg_type == 3: # verfiy
+                req_id = body.get(0, b"").decode('utf-8', 'ignore')
+                req_key = body.get(1, b"").decode('utf-8', 'ignore')
+                print(f"[VERIFY] ID: {req_id}")
+                
+                resp_state = 0 if req_id in accounts and accounts[req_id] == req_key else 1
                 s1 = encode_sproto([(0,1),(1,"Vice City Main"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-
-                # verfiy.response: state(0), session(1), game_server(2:list), etc.
-                resp = encode_sproto([
-                    (0, resp_state),
-                    (1, random.randint(100000, 999999)),
-                    (2, [s1]),
-                    (3, "1"),
-                    (5, "1.012.017"),
-                    (6, "167"),
-                    (7, 0)
-                ], fn=12)
-
+                
+                resp = encode_sproto([(0, resp_state), (1, random.randint(100,999)), (2, [s1]), (3, "1"), (5, "1.012.017"), (6, "167"), (7, 0)], fn=12)
                 pkg_h = encode_sproto([(1, session)], fn=2)
-                full = sproto_pack(pkg_h + resp)
-                conn.sendall(struct.pack(">H", len(full)) + full)
+                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h+resp))) + sproto_pack(pkg_h+resp))
 
-            elif msg_type == 218: # Heartbeat
+            elif msg_type == 218: # heartbeat
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h); conn.sendall(struct.pack(">H", len(full)) + full)
 
@@ -193,6 +157,6 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(("0.0.0.0", PORT))
 server.listen(10)
-print(f"LOGIN SERVER ON PORT {PORT}")
+print(f"LOGIN SERVER RUNNING ON {PORT}")
 while True:
     c, a = server.accept(); threading.Thread(target=client_handler, args=(c, a), daemon=True).start()
