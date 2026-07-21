@@ -6,10 +6,13 @@ import json
 import os
 import time
 
+# Railway cakton porten automatikisht
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
-GAME_HOST = "tokaido.proxy.rlwy.net"
-GAME_PORT = 48282
+
+# Konfigurimi i Railway per Game Server (Sipas te dhenave tuaja)
+GAME_SERVER_HOST = "tokaido.proxy.rlwy.net"
+GAME_SERVER_PORT = 48282
 
 def load_accounts():
     if os.path.exists(DB_FILE):
@@ -18,16 +21,18 @@ def load_accounts():
         except: return {}
     return {}
 
-def save_accounts(accs):
+def save_accounts(accounts):
     try:
-        with open(DB_FILE, "w") as f: json.dump(accs, f, indent=4)
-    except: pass
+        with open(DB_FILE, "w") as f: json.dump(accounts, f, indent=4)
+    except Exception as e: print(f"Error saving accounts: {e}")
 
 accounts = load_accounts()
 
 def sproto_pack(data):
+    """Implementim fiks i SprotoPack.cs"""
     out = bytearray()
-    for i in range(0, len(data), 8):
+    n = len(data)
+    for i in range(0, n, 8):
         chunk = data[i:i+8]
         if len(chunk) < 8: chunk += b'\x00' * (8 - len(chunk))
         mask, values = 0, bytearray()
@@ -57,7 +62,7 @@ def sproto_unpack(data):
     return bytes(out)
 
 def encode_sproto(fields, fn):
-    """Implementim me padding fiks ne header per te qene 100% compliant me Unity"""
+    """Implementim me HEADER PADDING (fn) qe Unity ta lexoje automatikisht"""
     fields.sort(key=lambda x: x[0])
     header = bytearray()
     body = bytearray()
@@ -82,7 +87,7 @@ def encode_sproto(fields, fn):
             body += struct.pack("<I", len(list_bin)) + list_bin
         last_tag = tag
 
-    # SHTIMI I PADDING: Detyrojme headerin te kete saktesisht 'fn' fjale
+    # Detyrojme header-in te kete saktesisht 'fn' fjale (Padding)
     while (len(header) // 2) < fn:
         header += struct.pack("<H", 0)
 
@@ -90,49 +95,59 @@ def encode_sproto(fields, fn):
 
 def decode_header(data):
     if len(data) < 2: return None, None
-    fn = struct.unpack("<H", data[:2])[0]
-    header = data[2:2+fn*2]
-    msg_type, session, idx, curr_tag = None, None, 0, 0
-    while idx < len(header):
-        val = struct.unpack("<H", header[idx:idx+2])[0]
-        if val & 1: curr_tag += (val >> 1) + 1
-        else:
-            real_val = (val >> 1) - 1
-            if curr_tag == 0: msg_type = real_val
-            if curr_tag == 1: session = real_val
-            curr_tag += 1
-        idx += 2
-    return msg_type, session
+    try:
+        fn = struct.unpack("<H", data[:2])[0]
+        header = data[2:2+fn*2]
+        msg_type, session, idx, curr_tag = None, None, 0, 0
+        while idx < len(header):
+            val = struct.unpack("<H", header[idx:idx+2])[0]
+            if val & 1: curr_tag += (val >> 1) + 1
+            else:
+                real_val = (val >> 1) - 1
+                if curr_tag == 0: msg_type = real_val
+                if curr_tag == 1: session = real_val
+                curr_tag += 1
+            idx += 2
+        return msg_type, session
+    except: return None, None
 
 def client_handler(conn, addr):
-    print(f"[+] Client: {addr}")
+    print(f"[+] Login Connection: {addr}")
     try:
         while True:
             h = conn.recv(2)
             if not h: break
             size = struct.unpack(">H", h)[0]
             data = b""
-            while len(data) < size: data += conn.recv(size - len(data))
+            while len(data) < size:
+                part = conn.recv(size - len(data))
+                if not part: break
+                data += part
+
             raw = sproto_unpack(data)
             msg_type, session = decode_header(raw)
             if msg_type is None: continue
 
-            if msg_type == 2: # Visitor Request (Gjenerim ID/Pass)
-                uid = random.choice(["68", "69"]) + str(int(time.time()))[-10:]
+            if msg_type == 2: # Visitor Request (Gjenerim automatik)
+                prefix = random.choice(["68", "69"])
+                # Perdorim time_ns per te garantuar ID unike per cdo lojtar
+                uid = prefix + str(time.time_ns())[-10:]
                 key = str(random.randint(1000000000, 9999999999))
                 accounts[uid] = key; save_accounts(accounts)
-                print(f"[NEW] ID={uid} PASS={key}")
+                print(f"[NEW ACCOUNT] ID={uid} PASS={key}")
+
                 # visitor.response fn=3
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(full)) + full)
 
-            elif msg_type == 3: # Verify Request (Lidhja me serverat)
-                # game_server fn=11
-                s1 = encode_sproto([(0,1),(1,"Europe"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                s2 = encode_sproto([(0,2),(1,"America"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                s3 = encode_sproto([(0,3),(1,"Asia"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
+            elif msg_type == 3: # Verify Request
+                # 3 Serverat tuaj: Europe, America, Asia
+                s1 = encode_sproto([(0,1),(1,"Europe"),(2,GAME_SERVER_HOST),(3,GAME_SERVER_PORT),(4,1),(10,1)], fn=11)
+                s2 = encode_sproto([(0,2),(1,"America"),(2,GAME_SERVER_HOST),(3,GAME_SERVER_PORT),(4,1),(10,1)], fn=11)
+                s3 = encode_sproto([(0,3),(1,"Asia"),(2,GAME_SERVER_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
+
                 # verify.response fn=12
                 resp = encode_sproto([(0,0),(1,session),(2,[s1,s2,s3]),(3,"1"),(5,"1.012.017"),(6,"0"),(7,0)], fn=12)
                 pkg_h = encode_sproto([(1, session)], fn=2)
