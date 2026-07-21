@@ -123,23 +123,36 @@ def client_handler(conn, addr):
             msg_type, session = decode_header(raw)
             if msg_type is None: continue
 
-            if msg_type == 2: # Visitor Request
-                uid = random.choice(["68", "69"]) + str(time.time_ns())[-10:]
+            if msg_type == 2: # Visitor Request (Tag 2)
+                uid = "GUEST_" + str(time.time_ns())[-10:]
                 key = str(random.randint(1000000000, 9999999999))
                 accounts[uid] = key; save_accounts(accounts)
-                print(f"[NEW ACC] ID={uid} PASS={key}")
+                print(f"[AUTO REG] Created: ID={uid} KEY={key}")
 
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(full)) + full)
 
-            elif msg_type == 3: # Verify Request
-                s1 = encode_sproto([(0,1),(1,"Europe"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                s2 = encode_sproto([(0,2),(1,"America"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                s3 = encode_sproto([(0,3),(1,"Asia"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
+            elif msg_type == 3: # Verify Request (Tag 3)
+                # Ketu Unity dergon ID dhe Key qe ka ruajtur ne PlayerPrefs
+                # Duhet ta vleresojme nese ekziston ne accounts.json
+                s1 = encode_sproto([(0,1),(1,"Europe Server"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
 
-                resp = encode_sproto([(0,0),(1,session),(2,[s1,s2,s3]),(3,"1"),(5,"1.012.017"),(6,"0"),(7,0)], fn=12)
+                # Nese llogaria eshte e vlefshme, state=0. Nese jo, state=1 (detyron visitor te ri)
+                resp_state = 0
+                # TODO: Shto kontrollin: if req_uid not in accounts: resp_state = 1
+
+                resp = encode_sproto([
+                    (0, resp_state),
+                    (1, session),
+                    (2, [s1]),
+                    (3, "1"),
+                    (5, "1.012.017"),
+                    (6, "167"),
+                    (7, 0)
+                ], fn=12)
+
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp)
                 conn.sendall(struct.pack(">H", len(full)) + full)
