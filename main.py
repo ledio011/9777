@@ -16,11 +16,16 @@ GAME_PORT = 48282
 
 
 def load_accounts():
+
     if os.path.exists(DB_FILE):
+
         try:
+
             with open(DB_FILE, "r") as f:
                 return json.load(f)
+
         except:
+
             return {}
 
     return {}
@@ -30,6 +35,7 @@ def load_accounts():
 def save_accounts():
 
     with open(DB_FILE, "w") as f:
+
         json.dump(accounts, f, indent=4)
 
 
@@ -42,12 +48,13 @@ def sproto_pack(data):
 
     out = bytearray()
 
-    for i in range(0,len(data),8):
+    for i in range(0, len(data), 8):
 
         chunk = data[i:i+8]
 
-        if len(chunk)<8:
-            chunk += b"\x00"*(8-len(chunk))
+        if len(chunk) < 8:
+
+            chunk += b"\x00" * (8-len(chunk))
 
 
         mask = 0
@@ -58,19 +65,19 @@ def sproto_pack(data):
 
             if chunk[j] != 0:
 
-                mask |= (1<<j)
+                mask |= (1 << j)
                 values.append(chunk[j])
 
 
-        out.append(mask)
-
         if mask == 255:
 
+            out.append(255)
             out.append(0)
             out.extend(chunk)
 
         else:
 
+            out.append(mask)
             out.extend(values)
 
 
@@ -78,27 +85,29 @@ def sproto_pack(data):
 
 
 
+
+
 def sproto_unpack(data):
 
     out = bytearray()
 
-    i=0
+    i = 0
 
 
-    while i<len(data):
+    while i < len(data):
 
-        mask=data[i]
-        i+=1
+        mask = data[i]
+        i += 1
 
 
         for bit in range(8):
 
-            if mask & (1<<bit):
+            if mask & (1 << bit):
 
-                if i<len(data):
+                if i < len(data):
 
                     out.append(data[i])
-                    i+=1
+                    i += 1
 
             else:
 
@@ -111,10 +120,11 @@ def sproto_unpack(data):
 
 
 
-def encode_sproto(fields,fn):
+def encode_sproto(fields, fn):
 
-    header=[1]*fn
-    body=bytearray()
+    header = [1] * fn
+
+    body = bytearray()
 
 
     for tag,value in fields:
@@ -122,9 +132,9 @@ def encode_sproto(fields,fn):
 
         if isinstance(value,int):
 
-            value=max(0,min(value,32766))
+            value = max(0,min(value,32766))
 
-            header[tag]=(value+1)*2
+            header[tag] = (value+1)*2
 
 
 
@@ -134,20 +144,20 @@ def encode_sproto(fields,fn):
 
             header[tag]=0
 
-            body+=struct.pack("<I",len(b))
-            body+=b
+            body += struct.pack("<I",len(b))
+            body += b
 
 
 
-    result=struct.pack("<H",fn)
+    result = struct.pack("<H",fn)
 
 
     for h in header:
 
-        result+=struct.pack("<H",h)
+        result += struct.pack("<H",h)
 
 
-    result+=body
+    result += body
 
 
     return result
@@ -159,6 +169,7 @@ def encode_sproto(fields,fn):
 def decode_sproto(data,offset=0):
 
     if len(data)<offset+2:
+
         return {}
 
 
@@ -179,6 +190,7 @@ def decode_sproto(data,offset=0):
     for i in range(fn):
 
         if h+i*2+2>len(data):
+
             break
 
 
@@ -191,6 +203,7 @@ def decode_sproto(data,offset=0):
         if v==0:
 
             if b+4>len(data):
+
                 break
 
 
@@ -208,9 +221,11 @@ def decode_sproto(data,offset=0):
             b+=4+size
 
 
+
         elif v>1:
 
             fields[i]=(v//2)-1
+
 
 
     return fields
@@ -221,7 +236,9 @@ def decode_sproto(data,offset=0):
 
 def create_account():
 
+
     while True:
+
 
         length=random.randint(12,16)
 
@@ -238,6 +255,7 @@ def create_account():
 
 
         if uid not in accounts:
+
             break
 
 
@@ -265,70 +283,45 @@ def create_account():
 
     return uid,password
 
+def client_handler(conn, addr):
 
-
-
-
-def client_handler(conn,addr):
-
-    print(
-        "[+] Connected:",
-        addr
-    )
-
+    print("[+] Connected:", addr)
 
     try:
 
-
         while True:
 
-
-            head=conn.recv(2)
-
+            head = conn.recv(2)
 
             if not head:
                 break
 
 
-
-            size=struct.unpack(
-                ">H",
-                head
-            )[0]
+            size = struct.unpack(">H", head)[0]
 
 
+            data = b""
 
-            data=b""
 
+            while len(data) < size:
 
-            while len(data)<size:
-
-                part=conn.recv(
-                    size-len(data)
-                )
-
+                part = conn.recv(size-len(data))
 
                 if not part:
                     break
 
-
-                data+=part
-
+                data += part
 
 
-            raw=sproto_unpack(data)
+
+            raw = sproto_unpack(data)
 
 
-            pkg=decode_sproto(
-                raw,
-                0
-            )
+            pkg = decode_sproto(raw,0)
 
 
-            msg_type=pkg.get(0)
-
-            session=pkg.get(1)
-
+            msg_type = pkg.get(0)
+            session = pkg.get(1)
 
 
             print(
@@ -339,40 +332,86 @@ def client_handler(conn,addr):
 
 
 
-            body_offset=2+(
+            body_offset = 2 + (
                 struct.unpack(
                     "<H",
                     raw[:2]
-                )[0]*2
+                )[0] * 2
             )
 
 
-            body=decode_sproto(
+            body = decode_sproto(
                 raw,
                 body_offset
             )
 
 
 
-            # INITIAL PACKET
+            # ==========================
+            # AUTO CREATE NEW PLAYER
+            # ==========================
 
             if msg_type == 234:
 
+
                 print(
-                    "[INIT] waiting visitor"
+                    "[INIT] Auto creating account"
                 )
 
-                continue
+
+                uid,password = create_account()
 
 
 
+                response = encode_sproto(
+                    [
+                        (0,uid),
+                        (1,password),
+                        (2,0)
+                    ],
+                    3
+                )
 
-            # AUTO ACCOUNT CREATE
 
-            if msg_type == 2:
+                header = encode_sproto(
+                    [
+                        (1, session if session else 1)
+                    ],
+                    2
+                )
+
+
+                packet = sproto_pack(
+                    header + response
+                )
+
+
+                conn.sendall(
+                    struct.pack(
+                        ">H",
+                        len(packet)
+                    )
+                    + packet
+                )
+
+
+                print(
+                    "[AUTO ACCOUNT SENT]",
+                    uid,
+                    password
+                )
+
+
+
+            # ==========================
+            # OLD CREATE BUTTON SUPPORT
+            # ==========================
+
+            elif msg_type == 2:
 
 
                 uid,password=create_account()
+
 
 
                 response=encode_sproto(
@@ -399,25 +438,30 @@ def client_handler(conn,addr):
 
 
                 conn.sendall(
-                    struct.pack(">H",len(packet))
-                    +packet
+                    struct.pack(
+                        ">H",
+                        len(packet)
+                    )
+                    + packet
                 )
 
 
 
-
+            # ==========================
+            # VERIFY LOGIN
+            # ==========================
 
             elif msg_type == 3:
 
 
-                uid=body.get(
+                uid = body.get(
                     0,b""
                 ).decode(
                     errors="ignore"
                 )
 
 
-                password=body.get(
+                password = body.get(
                     1,b""
                 ).decode(
                     errors="ignore"
@@ -430,19 +474,21 @@ def client_handler(conn,addr):
                 )
 
 
-                state=0
+                state = 0
 
 
                 if uid not in accounts:
-                    state=1
+
+                    state = 1
 
 
-                elif accounts[uid]!=password:
-                    state=1
+                elif accounts[uid] != password:
+
+                    state = 1
 
 
 
-                server=encode_sproto(
+                server = encode_sproto(
                     [
                         (0,1),
                         (1,"Vice City Main"),
@@ -453,7 +499,8 @@ def client_handler(conn,addr):
                 )
 
 
-                response=encode_sproto(
+
+                response = encode_sproto(
                     [
                         (0,state),
                         (2,server)
@@ -462,7 +509,8 @@ def client_handler(conn,addr):
                 )
 
 
-                header=encode_sproto(
+
+                header = encode_sproto(
                     [
                         (1,session)
                     ],
@@ -470,23 +518,31 @@ def client_handler(conn,addr):
                 )
 
 
-                packet=sproto_pack(
+
+                packet = sproto_pack(
                     header+response
                 )
 
 
+
                 conn.sendall(
-                    struct.pack(">H",len(packet))
-                    +packet
+                    struct.pack(
+                        ">H",
+                        len(packet)
+                    )
+                    + packet
                 )
 
 
 
+            # ==========================
+            # HEARTBEAT
+            # ==========================
 
             elif msg_type == 218:
 
 
-                header=encode_sproto(
+                header = encode_sproto(
                     [
                         (1,session)
                     ],
@@ -494,12 +550,17 @@ def client_handler(conn,addr):
                 )
 
 
-                packet=sproto_pack(header)
+                packet = sproto_pack(
+                    header
+                )
 
 
                 conn.sendall(
-                    struct.pack(">H",len(packet))
-                    +packet
+                    struct.pack(
+                        ">H",
+                        len(packet)
+                    )
+                    + packet
                 )
 
 
@@ -512,7 +573,6 @@ def client_handler(conn,addr):
         )
 
 
-
     finally:
 
         conn.close()
@@ -521,7 +581,12 @@ def client_handler(conn,addr):
 
 
 
-server=socket.socket(
+# ==========================
+# START LOGIN SERVER
+# ==========================
+
+
+server = socket.socket(
     socket.AF_INET,
     socket.SOCK_STREAM
 )
@@ -552,7 +617,8 @@ print(
 
 while True:
 
-    client,addr=server.accept()
+
+    client,addr = server.accept()
 
 
     threading.Thread(
