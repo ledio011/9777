@@ -5,7 +5,6 @@ import random
 import json
 import os
 
-
 PORT = int(os.environ.get("PORT", 9777))
 
 DB_FILE = "accounts.json"
@@ -14,9 +13,9 @@ GAME_HOST = "tokaido.proxy.rlwy.net"
 GAME_PORT = 48282
 
 
-# ==========================
+# =========================
 # DATABASE
-# ==========================
+# =========================
 
 def load_accounts():
     if os.path.exists(DB_FILE):
@@ -37,9 +36,9 @@ accounts = load_accounts()
 
 
 
-# ==========================
+# =========================
 # SPROTO PACK
-# ==========================
+# =========================
 
 def sproto_pack(data):
 
@@ -52,10 +51,8 @@ def sproto_pack(data):
         if len(chunk) < 8:
             chunk += b"\x00" * (8-len(chunk))
 
-
         mask = 0
         values = bytearray()
-
 
         for j in range(8):
 
@@ -65,7 +62,13 @@ def sproto_pack(data):
 
 
         out.append(mask)
-        out.extend(values)
+
+        if mask == 0xff:
+            out.extend(b"\x00")
+            out.extend(chunk)
+
+        else:
+            out.extend(values)
 
 
     return bytes(out)
@@ -94,7 +97,6 @@ def sproto_unpack(data):
                     i += 1
 
             else:
-
                 out.append(0)
 
 
@@ -102,18 +104,20 @@ def sproto_unpack(data):
 
 
 
-# ==========================
-# SPROTO ENCODE
-# ==========================
+# =========================
+# ENCODE / DECODE
+# =========================
 
 def encode_sproto(fields, fn):
 
     header = [1] * fn
-
     body = bytearray()
 
 
     for tag,value in fields:
+
+        if tag >= fn:
+            continue
 
 
         if isinstance(value,int):
@@ -123,12 +127,12 @@ def encode_sproto(fields, fn):
 
         elif isinstance(value,str):
 
-            value = value.encode()
+            b = value.encode()
 
             header[tag] = 0
 
-            body += struct.pack("<I",len(value))
-            body += value
+            body += struct.pack("<I",len(b))
+            body += b
 
 
         elif isinstance(value,bytes):
@@ -145,6 +149,9 @@ def encode_sproto(fields, fn):
 
     for h in header:
 
+        if h > 65535:
+            h = 1
+
         result += struct.pack("<H",h)
 
 
@@ -154,10 +161,6 @@ def encode_sproto(fields, fn):
     return result
 
 
-
-# ==========================
-# SPROTO DECODE
-# ==========================
 
 def decode_sproto(data,offset=0):
 
@@ -171,9 +174,9 @@ def decode_sproto(data,offset=0):
     )[0]
 
 
-    header = offset+2
+    h = offset+2
 
-    body = offset+2+(fn*2)
+    b = offset+2+(fn*2)
 
 
     fields={}
@@ -181,42 +184,99 @@ def decode_sproto(data,offset=0):
 
     for i in range(fn):
 
-        value = struct.unpack(
+        if h+i*2+2 > len(data):
+            break
+
+
+        v = struct.unpack(
             "<H",
-            data[header+i*2:header+i*2+2]
+            data[h+i*2:h+i*2+2]
         )[0]
 
 
-        if value == 0:
+        if v == 0:
 
-            length = struct.unpack(
+            if b+4 > len(data):
+                break
+
+
+            size = struct.unpack(
                 "<I",
-                data[body:body+4]
+                data[b:b+4]
             )[0]
 
 
-            fields[i]=data[
-                body+4:
-                body+4+length
+            fields[i] = data[
+                b+4:b+4+size
             ]
 
 
-            body += 4+length
+            b += 4+size
 
 
-        elif value > 1:
+        elif v > 1:
 
-            fields[i]=(value//2)-1
+            fields[i] = (v//2)-1
 
 
     return fields
 
 
 
+# =========================
+# CREATE ACCOUNT
+# =========================
 
-# ==========================
+def create_account():
+
+    while True:
+
+        length = random.randint(12,16)
+
+        uid = random.choice(
+            ["67","68","69"]
+        )
+
+
+        uid += "".join(
+            str(random.randint(0,9))
+            for _ in range(length-2)
+        )
+
+
+        if uid not in accounts:
+            break
+
+
+
+    pass_len = random.randint(8,13)
+
+
+    password = "".join(
+        str(random.randint(0,9))
+        for _ in range(pass_len)
+    )
+
+
+    accounts[uid] = password
+
+    save_accounts()
+
+
+    print(
+        "[NEW ACCOUNT]",
+        uid,
+        password
+    )
+
+
+    return uid,password
+
+
+
+# =========================
 # CLIENT
-# ==========================
+# =========================
 
 def client_handler(conn,addr):
 
@@ -227,37 +287,44 @@ def client_handler(conn,addr):
 
         while True:
 
+            head = conn.recv(2)
 
-            size_data = conn.recv(2)
-
-            if not size_data:
+            if not head:
                 break
 
 
             size = struct.unpack(
                 ">H",
-                size_data
+                head
             )[0]
 
 
-            packet=b""
+            data=b""
 
 
-            while len(packet)<size:
+            while len(data)<size:
 
-                packet += conn.recv(
-                    size-len(packet)
+                part=conn.recv(
+                    size-len(data)
                 )
 
+                if not part:
+                    break
 
-            raw = sproto_unpack(packet)
+                data+=part
 
 
-            header = decode_sproto(raw,0)
+
+            raw=sproto_unpack(data)
 
 
-            msg_type = header.get(0)
-            session = header.get(1)
+            pkg=decode_sproto(raw,0)
+
+
+            msg_type=pkg.get(0)
+
+            session=pkg.get(1)
+
 
 
             print(
@@ -267,7 +334,7 @@ def client_handler(conn,addr):
             )
 
 
-            body_start = 2 + (
+            body_offset = 2 + (
                 struct.unpack(
                     "<H",
                     raw[:2]
@@ -275,67 +342,22 @@ def client_handler(conn,addr):
             )
 
 
-            body = decode_sproto(
+            body=decode_sproto(
                 raw,
-                body_start
+                body_offset
             )
 
 
 
-            # ======================
-            # CREATE ACCOUNT
-            # ======================
+            # NEW USER
 
             if msg_type == 2:
 
 
-                while True:
-
-                    length=random.randint(12,16)
+                uid,password=create_account()
 
 
-                    uid=random.choice(
-                        [
-                            "67",
-                            "68",
-                            "69"
-                        ]
-                    )
-
-
-                    uid += "".join(
-                        str(random.randint(0,9))
-                        for _ in range(length-2)
-                    )
-
-
-                    if uid not in accounts:
-                        break
-
-
-
-                password="".join(
-                    str(random.randint(0,9))
-                    for _ in range(
-                        random.randint(8,13)
-                    )
-                )
-
-
-                accounts[uid]=password
-
-                save_accounts()
-
-
-                print(
-                    "[NEW ACCOUNT]",
-                    uid,
-                    password
-                )
-
-
-
-                response = encode_sproto(
+                resp=encode_sproto(
                     [
                         (0,uid),
                         (1,password),
@@ -345,7 +367,7 @@ def client_handler(conn,addr):
                 )
 
 
-                head = encode_sproto(
+                header=encode_sproto(
                     [
                         (1,session)
                     ],
@@ -353,33 +375,32 @@ def client_handler(conn,addr):
                 )
 
 
-                send = sproto_pack(
-                    head+response
+                packet=sproto_pack(
+                    header+resp
                 )
 
 
                 conn.sendall(
-                    struct.pack(">H",len(send))
-                    +send
+                    struct.pack(">H",len(packet))
+                    +packet
                 )
 
 
 
-            # ======================
+
             # VERIFY
-            # ======================
 
             elif msg_type == 3:
 
 
-                user = body.get(
+                uid=body.get(
                     0,b""
                 ).decode(
                     errors="ignore"
                 )
 
 
-                password = body.get(
+                password=body.get(
                     1,b""
                 ).decode(
                     errors="ignore"
@@ -388,43 +409,42 @@ def client_handler(conn,addr):
 
                 print(
                     "[VERIFY]",
-                    user
+                    uid
                 )
 
 
-                state = 0
+                state=0
 
 
-                if user not in accounts:
+                if uid not in accounts:
                     state=1
 
-                elif accounts[user]!=password:
+                elif accounts[uid] != password:
                     state=1
 
 
 
-                server = encode_sproto(
+                server=encode_sproto(
                     [
                         (0,1),
                         (1,"Vice City Main"),
                         (2,GAME_HOST),
                         (3,GAME_PORT)
                     ],
-                    11
+                    5
                 )
 
 
-                response = encode_sproto(
+                resp=encode_sproto(
                     [
                         (0,state),
-                        (2,server),
-                        (5,"1.012.017")
+                        (2,server)
                     ],
-                    12
+                    3
                 )
 
 
-                head = encode_sproto(
+                header=encode_sproto(
                     [
                         (1,session)
                     ],
@@ -432,25 +452,22 @@ def client_handler(conn,addr):
                 )
 
 
-                send=sproto_pack(
-                    head+response
+                packet=sproto_pack(
+                    header+resp
                 )
 
 
                 conn.sendall(
-                    struct.pack(">H",len(send))
-                    +send
+                    struct.pack(">H",len(packet))
+                    +packet
                 )
 
 
 
-            # ======================
-            # HEARTBEAT
-            # ======================
 
             elif msg_type == 218:
 
-                head=encode_sproto(
+                header=encode_sproto(
                     [
                         (1,session)
                     ],
@@ -458,22 +475,18 @@ def client_handler(conn,addr):
                 )
 
 
-                send=sproto_pack(head)
+                packet=sproto_pack(header)
 
 
                 conn.sendall(
-                    struct.pack(">H",len(send))
-                    +send
+                    struct.pack(">H",len(packet))
+                    +packet
                 )
-
 
 
     except Exception as e:
 
-        print(
-            "[ERROR]",
-            e
-        )
+        print("[ERROR]",e)
 
 
     finally:
@@ -482,16 +495,14 @@ def client_handler(conn,addr):
 
 
 
-# ==========================
+# =========================
 # START
-# ==========================
-
+# =========================
 
 server=socket.socket(
     socket.AF_INET,
     socket.SOCK_STREAM
 )
-
 
 server.setsockopt(
     socket.SOL_SOCKET,
@@ -514,14 +525,12 @@ print(
 )
 
 
-
 while True:
 
-    conn,addr=server.accept()
-
+    c,a=server.accept()
 
     threading.Thread(
         target=client_handler,
-        args=(conn,addr),
+        args=(c,a),
         daemon=True
     ).start()
