@@ -144,9 +144,9 @@ def client_handler(conn, addr):
                 key = generate_unique_password()
                 accounts[uid] = key
                 save_accounts(accounts)
-                print(f"[REGISTER] {uid} | {key}")
+                print(f"[REGISTER] New account created: {uid} | {key}")
                 
-                # Renditja Sproto per visitor.response: id(0), key(1), state(2)
+                # Sproto order for visitor.response: id(0), key(1), state(2)
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
@@ -181,6 +181,6 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(("0.0.0.0", PORT))
 server.listen(10)
-print(f"LOGIN SERVER READY ON {PORT}")
+print(f"LOGIN SERVER READY ON {PORT} (RESTORED)")
 while True:
     c, a = server.accept(); threading.Thread(target=client_handler, args=(c, a), daemon=True).start()
