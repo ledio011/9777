@@ -7,7 +7,7 @@ import os
 
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
-PLAYER_DATA_FILE = "player_data.json"  # NEW: Local player data
+PLAYER_DATA_FILE = "player_data.json"
 GAME_HOST = "tokaido.proxy.rlwy.net"
 GAME_PORT = 48282
 
@@ -24,7 +24,6 @@ def save_accounts():
     with open(DB_FILE, "w") as f:
         json.dump(accounts, f, indent=4)
 
-# NEW: Load/save player device data
 def load_player_data():
     if os.path.exists(PLAYER_DATA_FILE):
         try:
@@ -157,18 +156,18 @@ def client_handler(conn, addr):
             body = decode_sproto(raw, body_offset)
             
             # ==========================
-            # AUTO ACCOUNT CREATE (INIT)
+            # VISITOR / AUTO ACCOUNT CREATE (msg 234)
             # ==========================
             if msg_type == 234:
-                print("[INIT] Checking for saved account...")
+                print("[VISITOR] Auto creating account for new player")
                 
-                # NEW: Check if player has saved account
+                # Check if player already has saved account
                 if client_id in player_data:
                     uid = player_data[client_id]["uid"]
                     password = player_data[client_id]["password"]
                     print("[EXISTING ACCOUNT FOUND]", uid)
                 else:
-                    # NEW: Create account and save locally
+                    # Create new account and save to player_data
                     uid, password = create_account()
                     player_data[client_id] = {
                         "uid": uid,
@@ -177,6 +176,7 @@ def client_handler(conn, addr):
                     save_player_data(player_data)
                     print("[NEW ACCOUNT CREATED & SAVED]", uid)
                 
+                # Send account back to client
                 response = encode_sproto(
                     [(0, uid), (1, password), (2, 0)],
                     3
@@ -189,25 +189,30 @@ def client_handler(conn, addr):
                 conn.sendall(
                     struct.pack(">H", len(packet)) + packet
                 )
-                print("[ACCOUNT SENT]", uid, password)
+                print("[ACCOUNT SENT TO CLIENT]", uid, password)
             
             # ==========================
-            # CREATE BUTTON BACKUP
+            # CREATE BUTTON (msg 2)
             # ==========================
             elif msg_type == 2:
+                print("[CREATE] Player manually clicking CREATE button")
                 uid, password = create_account()
                 response = encode_sproto(
                     [(0, uid), (1, password), (2, 0)],
                     3
                 )
-                header = encode_sproto([(1, session)], 2)
+                header = encode_sproto(
+                    [(1, session)],
+                    2
+                )
                 packet = sproto_pack(header + response)
                 conn.sendall(
                     struct.pack(">H", len(packet)) + packet
                 )
+                print("[ACCOUNT SENT (CREATE BUTTON)]", uid, password)
             
             # ==========================
-            # VERIFY LOGIN
+            # VERIFY LOGIN (msg 3)
             # ==========================
             elif msg_type == 3:
                 uid = body.get(0, b"").decode(errors="ignore")
@@ -224,15 +229,22 @@ def client_handler(conn, addr):
                     [(0, 1), (1, "Vice City Main"), (2, GAME_HOST), (3, GAME_PORT)],
                     5
                 )
-                response = encode_sproto([(0, state), (2, server)], 3)
-                header = encode_sproto([(1, session)], 2)
+                response = encode_sproto(
+                    [(0, state), (2, server)],
+                    3
+                )
+                header = encode_sproto(
+                    [(1, session)],
+                    2
+                )
                 packet = sproto_pack(header + response)
                 conn.sendall(
                     struct.pack(">H", len(packet)) + packet
                 )
+                print("[LOGIN RESPONSE] state:", state)
             
             # ==========================
-            # HEARTBEAT
+            # HEARTBEAT (msg 218)
             # ==========================
             elif msg_type == 218:
                 header = encode_sproto([(1, session)], 2)
