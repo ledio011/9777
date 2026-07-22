@@ -124,15 +124,40 @@ def client_handler(conn, addr):
             body = decode_sproto(raw, body_off)
 
             if msg_type == 2: # visitor
-                while True:
-                    uid = random.choice(["67", "68", "69"]) + str(random.randint(10000000, 99999999))
-                    if uid not in accounts: break
-                key = str(random.randint(1000000000, 9999999999))
-                accounts[uid] = key; save_accounts(accounts)
-                print(f"[GUEST] Created Account: {uid}")
-                resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
-                pkg_h = encode_sproto([(1, session)], fn=2)
-                conn.sendall(struct.pack(">H", len(sproto_pack(pkg_h+resp))) + sproto_pack(pkg_h+resp))
+
+    while True:
+        length = random.randint(12,16)
+
+        uid = random.choice(["67","68","69"]) + "".join(
+            str(random.randint(0,9)) for _ in range(length-2)
+        )
+
+        if uid not in accounts:
+            break
+
+    key_length = random.randint(8,13)
+
+    key = "".join(
+        str(random.randint(0,9)) for _ in range(key_length)
+    )
+
+    accounts[uid] = key
+    save_accounts(accounts)
+
+    print(f"[GUEST] Account Created: {uid} / {key}")
+
+    resp = encode_sproto(
+        [(0, uid), (1, key), (2, 0)],
+        fn=3
+    )
+
+    pkg_h = encode_sproto([(1, session)], fn=2)
+
+    full = sproto_pack(pkg_h + resp)
+
+    conn.sendall(
+        struct.pack(">H", len(full)) + full
+    )
 
             elif msg_type == 3: # verfiy
                 req_id = body.get(0, b"").decode('utf-8', 'ignore')
