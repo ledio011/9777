@@ -264,12 +264,13 @@ def create_account():
         password
     )
 
-
     return uid,password
-    def client_handler(conn, addr):
+
+
+
+def client_handler(conn, addr):
 
     print("[+] Connected:", addr)
-
     try:
 
         while True:
