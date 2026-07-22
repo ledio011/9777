@@ -20,12 +20,10 @@ def load_accounts():
     if os.path.exists(DB_FILE):
 
         try:
-
             with open(DB_FILE, "r") as f:
                 return json.load(f)
 
         except:
-
             return {}
 
     return {}
@@ -35,7 +33,6 @@ def load_accounts():
 def save_accounts():
 
     with open(DB_FILE, "w") as f:
-
         json.dump(accounts, f, indent=4)
 
 
@@ -53,7 +50,6 @@ def sproto_pack(data):
         chunk = data[i:i+8]
 
         if len(chunk) < 8:
-
             chunk += b"\x00" * (8-len(chunk))
 
 
@@ -137,7 +133,6 @@ def encode_sproto(fields, fn):
             header[tag] = (value+1)*2
 
 
-
         elif isinstance(value,str):
 
             b=value.encode()
@@ -169,7 +164,6 @@ def encode_sproto(fields, fn):
 def decode_sproto(data,offset=0):
 
     if len(data)<offset+2:
-
         return {}
 
 
@@ -190,7 +184,6 @@ def decode_sproto(data,offset=0):
     for i in range(fn):
 
         if h+i*2+2>len(data):
-
             break
 
 
@@ -201,11 +194,6 @@ def decode_sproto(data,offset=0):
 
 
         if v==0:
-
-            if b+4>len(data):
-
-                break
-
 
             size=struct.unpack(
                 "<I",
@@ -219,7 +207,6 @@ def decode_sproto(data,offset=0):
 
 
             b+=4+size
-
 
 
         elif v>1:
@@ -236,9 +223,7 @@ def decode_sproto(data,offset=0):
 
 def create_account():
 
-
     while True:
-
 
         length=random.randint(12,16)
 
@@ -255,7 +240,6 @@ def create_account():
 
 
         if uid not in accounts:
-
             break
 
 
@@ -282,8 +266,7 @@ def create_account():
 
 
     return uid,password
-
-def client_handler(conn, addr):
+    def client_handler(conn, addr):
 
     print("[+] Connected:", addr)
 
@@ -348,7 +331,7 @@ def client_handler(conn, addr):
 
 
             # ==========================
-            # AUTO CREATE NEW PLAYER
+            # AUTO ACCOUNT CREATE
             # ==========================
 
             if msg_type == 234:
@@ -373,6 +356,7 @@ def client_handler(conn, addr):
                 )
 
 
+
                 header = encode_sproto(
                     [
                         (1, session if session else 1)
@@ -381,9 +365,11 @@ def client_handler(conn, addr):
                 )
 
 
+
                 packet = sproto_pack(
                     header + response
                 )
+
 
 
                 conn.sendall(
@@ -395,6 +381,7 @@ def client_handler(conn, addr):
                 )
 
 
+
                 print(
                     "[AUTO ACCOUNT SENT]",
                     uid,
@@ -404,7 +391,7 @@ def client_handler(conn, addr):
 
 
             # ==========================
-            # OLD CREATE BUTTON SUPPORT
+            # CREATE BUTTON BACKUP
             # ==========================
 
             elif msg_type == 2:
@@ -414,7 +401,7 @@ def client_handler(conn, addr):
 
 
 
-                response=encode_sproto(
+                response = encode_sproto(
                     [
                         (0,uid),
                         (1,password),
@@ -424,7 +411,7 @@ def client_handler(conn, addr):
                 )
 
 
-                header=encode_sproto(
+                header = encode_sproto(
                     [
                         (1,session)
                     ],
@@ -519,10 +506,9 @@ def client_handler(conn, addr):
 
 
 
-                packet = sproto_pack(
+                packet=sproto_pack(
                     header+response
                 )
-
 
 
                 conn.sendall(
@@ -530,7 +516,7 @@ def client_handler(conn, addr):
                         ">H",
                         len(packet)
                     )
-                    + packet
+                    +packet
                 )
 
 
@@ -542,7 +528,7 @@ def client_handler(conn, addr):
             elif msg_type == 218:
 
 
-                header = encode_sproto(
+                header=encode_sproto(
                     [
                         (1,session)
                     ],
@@ -550,7 +536,7 @@ def client_handler(conn, addr):
                 )
 
 
-                packet = sproto_pack(
+                packet=sproto_pack(
                     header
                 )
 
@@ -560,7 +546,7 @@ def client_handler(conn, addr):
                         ">H",
                         len(packet)
                     )
-                    + packet
+                    +packet
                 )
 
 
@@ -582,11 +568,11 @@ def client_handler(conn, addr):
 
 
 # ==========================
-# START LOGIN SERVER
+# START SERVER
 # ==========================
 
 
-server = socket.socket(
+server=socket.socket(
     socket.AF_INET,
     socket.SOCK_STREAM
 )
@@ -617,8 +603,7 @@ print(
 
 while True:
 
-
-    client,addr = server.accept()
+    client,addr=server.accept()
 
 
     threading.Thread(
