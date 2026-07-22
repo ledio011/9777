@@ -39,7 +39,6 @@ def generate_unique_password():
     while True:
         length = random.randint(10, 13)
         pwd = "".join([str(random.randint(0, 9)) for _ in range(length)])
-        # Sigurohemi qe fjalekalimi eshte unik per thjeshtesi login-i
         if pwd not in accounts.values():
             return pwd
 
@@ -140,14 +139,14 @@ def client_handler(conn, addr):
             body_off = 2 + (struct.unpack("<H", raw[:2])[0] * 2)
             body = decode_sproto(raw, body_off)
 
-            if msg_type == 2: # visitor (NEW ACCOUNT)
+            if msg_type == 2: # visitor
                 uid = generate_unique_id()
                 key = generate_unique_password()
-                
                 accounts[uid] = key
                 save_accounts(accounts)
-                print(f"[REGISTER] New Player Created! ID: {uid} | Pass: {key}")
+                print(f"[REGISTER] {uid} | {key}")
                 
+                # Renditja Sproto per visitor.response: id(0), key(1), state(2)
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
@@ -155,14 +154,9 @@ def client_handler(conn, addr):
             elif msg_type == 3: # verfiy
                 req_id = body.get(0, b"").decode('utf-8', 'ignore')
                 req_key = body.get(1, b"").decode('utf-8', 'ignore')
-                print(f"[VERIFY] Checking account: {req_id}")
+                print(f"[VERIFY] Account: {req_id}")
                 
-                if req_id in accounts and accounts[req_id] == req_key:
-                    resp_state = 0
-                    print(f"[SUCCESS] {req_id} authenticated.")
-                else:
-                    resp_state = 1
-                    print(f"[FAILED] Invalid credentials for {req_id}")
+                resp_state = 0 if req_id in accounts and accounts[req_id] == req_key else 1
                 
                 s1 = encode_sproto([(0,1),(1,"Vice City Main"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
                 resp = encode_sproto([
@@ -171,7 +165,7 @@ def client_handler(conn, addr):
                     (2, [s1]), 
                     (5, "1.012.017"), 
                     (6, "167"), 
-                    (8, "Welcome to Vice City!")
+                    (8, "Welcome to Vice City Online!")
                 ], fn=12)
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
@@ -187,6 +181,6 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(("0.0.0.0", PORT))
 server.listen(10)
-print(f"LOGIN SERVER READY ON {PORT} (PERSISTENT MODE)")
+print(f"LOGIN SERVER READY ON {PORT}")
 while True:
     c, a = server.accept(); threading.Thread(target=client_handler, args=(c, a), daemon=True).start()
