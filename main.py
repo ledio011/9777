@@ -2,13 +2,46 @@ import socket
 import struct
 import threading
 import random
+import json
 import os
 import time
 
 # Railway/Local Config
 PORT = int(os.environ.get("PORT", 9777))
+DB_FILE = "accounts.json"
 GAME_HOST = "tokaido.proxy.rlwy.net"
 GAME_PORT = 48282
+
+def load_accounts():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r") as f: return json.load(f)
+        except: return {}
+    return {}
+
+def save_accounts(accs):
+    try:
+        with open(DB_FILE, "w") as f: json.dump(accs, f, indent=4)
+    except: pass
+
+accounts = load_accounts()
+
+def generate_unique_id():
+    while True:
+        prefix = random.choice(["67", "68", "69"])
+        length = random.randint(13, 17) - 2
+        suffix = "".join([str(random.randint(0, 9)) for _ in range(length)])
+        uid = prefix + suffix
+        if uid not in accounts:
+            return uid
+
+def generate_unique_password():
+    while True:
+        length = random.randint(10, 13)
+        pwd = "".join([str(random.randint(0, 9)) for _ in range(length)])
+        # Sigurohemi qe fjalekalimi eshte unik per thjeshtesi login-i
+        if pwd not in accounts.values():
+            return pwd
 
 def sproto_pack(data):
     out = bytearray()
@@ -107,23 +140,39 @@ def client_handler(conn, addr):
             body_off = 2 + (struct.unpack("<H", raw[:2])[0] * 2)
             body = decode_sproto(raw, body_off)
 
-            if msg_type == 2: # visitor (GUEST LOGIN)
-                # Gjenerim ID automatike bazuar ne timestamp (10 shifra te fundit)
-                uid = str(time.time_ns())[-10:]
-                key = "auto_generated_key"
-                print(f"[GUEST] ID e re u gjenerua automatikisht: {uid}")
+            if msg_type == 2: # visitor (NEW ACCOUNT)
+                uid = generate_unique_id()
+                key = generate_unique_password()
+                
+                accounts[uid] = key
+                save_accounts(accounts)
+                print(f"[REGISTER] New Player Created! ID: {uid} | Pass: {key}")
                 
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
 
             elif msg_type == 3: # verfiy
-                # Çdo ID pranohet si e vlefshme
                 req_id = body.get(0, b"").decode('utf-8', 'ignore')
-                print(f"[VERIFY] Po verifikoj ID: {req_id} -> OK")
+                req_key = body.get(1, b"").decode('utf-8', 'ignore')
+                print(f"[VERIFY] Checking account: {req_id}")
                 
-                s1 = encode_sproto([(0,1),(1,"Railway Server"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                resp = encode_sproto([(0, 0), (1, random.randint(100,999)), (2, [s1]), (3, "1"), (5, "1.012.017"), (6, "167"), (7, 0)], fn=12)
+                if req_id in accounts and accounts[req_id] == req_key:
+                    resp_state = 0
+                    print(f"[SUCCESS] {req_id} authenticated.")
+                else:
+                    resp_state = 1
+                    print(f"[FAILED] Invalid credentials for {req_id}")
+                
+                s1 = encode_sproto([(0,1),(1,"Vice City Main"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
+                resp = encode_sproto([
+                    (0, resp_state), 
+                    (1, random.randint(1000, 9999)), 
+                    (2, [s1]), 
+                    (5, "1.012.017"), 
+                    (6, "167"), 
+                    (8, "Welcome to Vice City!")
+                ], fn=12)
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
 
@@ -138,6 +187,6 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(("0.0.0.0", PORT))
 server.listen(10)
-print(f"LOGIN SERVER RUNNING ON {PORT} (AUTO-ID MODE)")
+print(f"LOGIN SERVER READY ON {PORT} (PERSISTENT MODE)")
 while True:
     c, a = server.accept(); threading.Thread(target=client_handler, args=(c, a), daemon=True).start()
