@@ -349,12 +349,20 @@ def client_handler(conn,addr):
 
 
 
-            # NEW USER
+ # NEW USER
 
-            if msg_type == 2:
+if msg_type == 234:
+    print("[INIT PACKET RECEIVED - WAITING FOR VISITOR]")
+    continue
 
 
-                uid,password=create_account()
+if msg_type == 2:
+
+    uid,password=create_account()
+
+    
+
+    
 
 
                 resp=encode_sproto(
