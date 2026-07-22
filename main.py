@@ -164,7 +164,8 @@ def client_handler(conn, addr):
                     (2, [s1]), 
                     (5, "1.012.017"), 
                     (6, "167"), 
-                    (8, "Welcome to Vice City Online!")
+                    (8, "Join our Whatsapp group
+                    https://chat.whatsapp.com/FdTIW31DQjA0QvifT4r89x")
                 ], fn=12)
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
