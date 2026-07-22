@@ -2,275 +2,142 @@ import socket
 import struct
 import threading
 import random
-import json
 import os
+import time
 
+# Railway/Local Config
 PORT = int(os.environ.get("PORT", 9777))
-DB_FILE = "accounts.json"
-PLAYER_DATA_FILE = "player_data.json"
 GAME_HOST = "tokaido.proxy.rlwy.net"
 GAME_PORT = 48282
-
-def load_accounts():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r") as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
-
-def save_accounts():
-    with open(DB_FILE, "w") as f:
-        json.dump(accounts, f, indent=4)
-
-def load_player_data():
-    if os.path.exists(PLAYER_DATA_FILE):
-        try:
-            with open(PLAYER_DATA_FILE, "r") as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
-
-def save_player_data(data):
-    with open(PLAYER_DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
-accounts = load_accounts()
-player_data = load_player_data()
 
 def sproto_pack(data):
     out = bytearray()
     for i in range(0, len(data), 8):
         chunk = data[i:i+8]
-        if len(chunk) < 8:
-            chunk += b"\x00" * (8-len(chunk))
-        mask = 0
-        values = bytearray()
+        if len(chunk) < 8: chunk += b'\x00' * (8 - len(chunk))
+        mask, values = 0, bytearray()
         for j in range(8):
             if chunk[j] != 0:
-                mask |= (1 << j)
-                values.append(chunk[j])
-        if mask == 255:
-            out.append(255)
-            out.append(0)
-            out.extend(chunk)
+                mask |= (1 << j); values.append(chunk[j])
+        if mask == 0xFF:
+            out.extend([0xFF, 0]); out.extend(chunk)
         else:
-            out.append(mask)
-            out.extend(values)
+            out.append(mask); out.extend(values)
     return bytes(out)
 
 def sproto_unpack(data):
     out = bytearray()
     i = 0
     while i < len(data):
-        mask = data[i]
-        i += 1
-        for bit in range(8):
-            if mask & (1 << bit):
-                if i < len(data):
-                    out.append(data[i])
-                    i += 1
-                else:
-                    out.append(0)
+        mask = data[i]; i += 1
+        if mask == 0xFF:
+            if i >= len(data): break
+            n = (data[i] + 1) * 8; i += 1
+            out.extend(data[i:i+n]); i += n
+        else:
+            for bit in range(8):
+                if mask & (1 << bit):
+                    if i < len(data): out.append(data[i]); i += 1
+                else: out.append(0)
     return bytes(out)
 
-def encode_sproto(fields, fn):
-    header = [1] * fn
+def encode_sproto(fields, fn=None):
+    if not fields: return struct.pack("<H", 0)
+    fields.sort(key=lambda x: x[0])
+    if fn is None: fn = fields[-1][0] + 1
+    header = [0] * fn
     body = bytearray()
-    for tag, value in fields:
-        if isinstance(value, int):
-            value = max(0, min(value, 32766))
-            header[tag] = (value+1)*2
-        elif isinstance(value, str):
-            b = value.encode()
-            header[tag] = 0
-            body += struct.pack("<I", len(b))
-            body += b
-    result = struct.pack("<H", fn)
-    for h in header:
-        result += struct.pack("<H", h)
-    result += body
-    return result
+    field_dict = {f[0]: f[1] for f in fields}
+    for tag in range(fn):
+        if tag in field_dict:
+            val = field_dict[tag]
+            if val is None: header[tag] = 1
+            elif isinstance(val, int):
+                if 0 <= val <= 32766: header[tag] = (val + 1) * 2
+                else:
+                    header[tag] = 0
+                    body += struct.pack("<I", 8) + struct.pack("<q", val)
+            elif isinstance(val, (str, bytes, bytearray)):
+                if isinstance(val, str): val = val.encode('utf-8')
+                header[tag] = 0
+                body += struct.pack("<I", len(val)) + val
+            elif isinstance(val, list):
+                header[tag] = 0
+                list_bin = bytearray()
+                for item in val: list_bin += struct.pack("<I", len(item)) + item
+                body += struct.pack("<I", len(list_bin)) + list_bin
+        else: header[tag] = 1
+    res = struct.pack("<H", fn)
+    for h in header: res += struct.pack("<H", h)
+    res += body
+    return bytes(res)
 
 def decode_sproto(data, offset=0):
-    if len(data) < offset+2:
-        return {}
+    if len(data) < offset + 2: return {}
     fn = struct.unpack("<H", data[offset:offset+2])[0]
-    h = offset+2
-    b = offset+2+(fn*2)
-    fields = {}
+    h_ptr, b_ptr = offset + 2, offset + 2 + fn*2
+    fields, curr_tag = {}, -1
     for i in range(fn):
-        if h+i*2+2 > len(data):
-            break
-        v = struct.unpack("<H", data[h+i*2:h+i*2+2])[0]
+        curr_tag += 1
+        v = struct.unpack("<H", data[h_ptr + i*2 : h_ptr + i*2 + 2])[0]
         if v == 0:
-            size = struct.unpack("<I", data[b:b+4])[0]
-            fields[i] = data[b+4:b+4+size]
-            b += 4+size
-        elif v > 1:
-            fields[i] = (v//2)-1
+            if b_ptr + 4 <= len(data):
+                l = struct.unpack("<I", data[b_ptr:b_ptr+4])[0]
+                fields[curr_tag] = data[b_ptr+4:b_ptr+4+l]
+                b_ptr += 4 + l
+        elif v == 1: pass
+        elif v & 1: curr_tag += (v >> 1)
+        else: fields[curr_tag] = (v >> 1) - 1
     return fields
 
-def create_account():
-    while True:
-        length = random.randint(12, 16)
-        uid = random.choice(["67", "68", "69"])
-        uid += "".join(str(random.randint(0, 9)) for _ in range(length-2))
-        if uid not in accounts:
-            break
-    
-    pass_len = random.randint(8, 13)
-    password = "".join(str(random.randint(0, 9)) for _ in range(pass_len))
-    
-    accounts[uid] = password
-    save_accounts()
-    print("[NEW ACCOUNT]", uid, password)
-    return uid, password
-
 def client_handler(conn, addr):
-    print("[+] Connected:", addr)
-    client_id = str(addr[1])  # Use client port as unique identifier
-    
+    print(f"[+] Login Access: {addr}")
     try:
         while True:
-            head = conn.recv(2)
-            if not head:
-                break
-            size = struct.unpack(">H", head)[0]
+            h = conn.recv(2)
+            if not h: break
+            size = struct.unpack(">H", h)[0]
             data = b""
-            while len(data) < size:
-                part = conn.recv(size-len(data))
-                if not part:
-                    break
-                data += part
-            
+            while len(data) < size: data += conn.recv(size - len(data))
             raw = sproto_unpack(data)
+            
             pkg = decode_sproto(raw, 0)
-            msg_type = pkg.get(0)
-            session = pkg.get(1)
-            print("[PACKET]", msg_type, session)
+            msg_type, session = pkg.get(0), pkg.get(1)
             
-            body_offset = 2 + (struct.unpack("<H", raw[:2])[0] * 2)
-            body = decode_sproto(raw, body_offset)
-            
-            # ==========================
-            # VISITOR / AUTO ACCOUNT CREATE (msg 234)
-            # ==========================
-            if msg_type == 234:
-                print("[VISITOR] Auto creating account for new player")
-                
-                # Check if player already has saved account
-                if client_id in player_data:
-                    uid = player_data[client_id]["uid"]
-                    password = player_data[client_id]["password"]
-                    print("[EXISTING ACCOUNT FOUND]", uid)
-                else:
-                    # Create new account and save to player_data
-                    uid, password = create_account()
-                    player_data[client_id] = {
-                        "uid": uid,
-                        "password": password
-                    }
-                    save_player_data(player_data)
-                    print("[NEW ACCOUNT CREATED & SAVED]", uid)
-                
-                # Send account back to client
-                response = encode_sproto(
-                    [(0, uid), (1, password), (2, 0)],
-                    3
-                )
-                header = encode_sproto(
-                    [(1, session if session else 1)],
-                    2
-                )
-                packet = sproto_pack(header + response)
-                conn.sendall(
-                    struct.pack(">H", len(packet)) + packet
-                )
-                print("[ACCOUNT SENT TO CLIENT]", uid, password)
-            
-            # ==========================
-            # CREATE BUTTON (msg 2)
-            # ==========================
-            elif msg_type == 2:
-                print("[CREATE] Player manually clicking CREATE button")
-                uid, password = create_account()
-                response = encode_sproto(
-                    [(0, uid), (1, password), (2, 0)],
-                    3
-                )
-                header = encode_sproto(
-                    [(1, session)],
-                    2
-                )
-                packet = sproto_pack(header + response)
-                conn.sendall(
-                    struct.pack(">H", len(packet)) + packet
-                )
-                print("[ACCOUNT SENT (CREATE BUTTON)]", uid, password)
-            
-            # ==========================
-            # VERIFY LOGIN (msg 3)
-            # ==========================
-            elif msg_type == 3:
-                uid = body.get(0, b"").decode(errors="ignore")
-                password = body.get(1, b"").decode(errors="ignore")
-                print("[VERIFY]", uid)
-                
-                state = 0
-                if uid not in accounts:
-                    state = 1
-                elif accounts[uid] != password:
-                    state = 1
-                
-                server = encode_sproto(
-                    [(0, 1), (1, "Vice City Main"), (2, GAME_HOST), (3, GAME_PORT)],
-                    5
-                )
-                response = encode_sproto(
-                    [(0, state), (2, server)],
-                    3
-                )
-                header = encode_sproto(
-                    [(1, session)],
-                    2
-                )
-                packet = sproto_pack(header + response)
-                conn.sendall(
-                    struct.pack(">H", len(packet)) + packet
-                )
-                print("[LOGIN RESPONSE] state:", state)
-            
-            # ==========================
-            # HEARTBEAT (msg 218)
-            # ==========================
-            elif msg_type == 218:
-                header = encode_sproto([(1, session)], 2)
-                packet = sproto_pack(header)
-                conn.sendall(
-                    struct.pack(">H", len(packet)) + packet
-                )
-    
-    except Exception as e:
-        print("[ERROR]", e)
-    finally:
-        conn.close()
+            body_off = 2 + (struct.unpack("<H", raw[:2])[0] * 2)
+            body = decode_sproto(raw, body_off)
 
-# ==========================
-# START SERVER
-# ==========================
+            if msg_type == 2: # visitor (GUEST LOGIN)
+                # Gjenerim ID automatike bazuar ne timestamp (10 shifra te fundit)
+                uid = str(time.time_ns())[-10:]
+                key = "auto_generated_key"
+                print(f"[GUEST] ID e re u gjenerua automatikisht: {uid}")
+                
+                resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
+                pkg_h = encode_sproto([(1, session)], fn=2)
+                full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
+
+            elif msg_type == 3: # verfiy
+                # Çdo ID pranohet si e vlefshme
+                req_id = body.get(0, b"").decode('utf-8', 'ignore')
+                print(f"[VERIFY] Po verifikoj ID: {req_id} -> OK")
+                
+                s1 = encode_sproto([(0,1),(1,"Railway Server"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
+                resp = encode_sproto([(0, 0), (1, random.randint(100,999)), (2, [s1]), (3, "1"), (5, "1.012.017"), (6, "167"), (7, 0)], fn=12)
+                pkg_h = encode_sproto([(1, session)], fn=2)
+                full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
+
+            elif msg_type == 218: # heartbeat
+                pkg_h = encode_sproto([(1, session)], fn=2)
+                full = sproto_pack(pkg_h); conn.sendall(struct.pack(">H", len(full)) + full)
+
+    except Exception as e: print(f"Login Error: {e}")
+    finally: conn.close()
+
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(("0.0.0.0", PORT))
-server.listen(20)
-print("LOGIN SERVER RUNNING ON", PORT)
-
+server.listen(10)
+print(f"LOGIN SERVER RUNNING ON {PORT} (AUTO-ID MODE)")
 while True:
-    client, addr = server.accept()
-    threading.Thread(
-        target=client_handler,
-        args=(client, addr),
-        daemon=True
-    ).start()
+    c, a = server.accept(); threading.Thread(target=client_handler, args=(c, a), daemon=True).start()
