@@ -5,6 +5,7 @@ import random
 import json
 import os
 import time
+import traceback
 
 # Railway/Local Config
 PORT = int(os.environ.get("PORT", 9777))
@@ -44,17 +45,23 @@ def generate_unique_password():
 
 def sproto_pack(data):
     out = bytearray()
-    for i in range(0, len(data), 8):
+    i = 0
+    while i < len(data):
         chunk = data[i:i+8]
         if len(chunk) < 8: chunk += b'\x00' * (8 - len(chunk))
-        mask, values = 0, bytearray()
+        mask = 0
         for j in range(8):
-            if chunk[j] != 0:
-                mask |= (1 << j); values.append(chunk[j])
+            if chunk[j] != 0: mask |= (1 << j)
+        
         if mask == 0xFF:
-            out.extend([0xFF, 0]); out.extend(chunk)
+            out.append(0xFF)
+            out.append(0) 
+            out.extend(chunk)
         else:
-            out.append(mask); out.extend(values)
+            out.append(mask)
+            for j in range(8):
+                if chunk[j] != 0: out.append(chunk[j])
+        i += 8
     return bytes(out)
 
 def sproto_unpack(data):
@@ -123,7 +130,7 @@ def decode_sproto(data, offset=0):
     return fields
 
 def client_handler(conn, addr):
-    print(f"[+] Login Access: {addr}")
+    print(f"[+] Login Connection: {addr}")
     try:
         while True:
             h = conn.recv(2)
@@ -144,7 +151,7 @@ def client_handler(conn, addr):
                 key = generate_unique_password()
                 accounts[uid] = key
                 save_accounts(accounts)
-                print(f"[REGISTER] {uid} | {key}")
+                print(f"[REGISTER] Visitor Created: {uid} | {key}")
                 
                 resp = encode_sproto([(0, uid), (1, key), (2, 0)], fn=3)
                 pkg_h = encode_sproto([(1, session)], fn=2)
@@ -173,7 +180,9 @@ def client_handler(conn, addr):
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h); conn.sendall(struct.pack(">H", len(full)) + full)
 
-    except Exception as e: print(f"Login Error: {e}")
+    except Exception as e: 
+        print(f"[ERROR] Login: {e}")
+        traceback.print_exc()
     finally: conn.close()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
