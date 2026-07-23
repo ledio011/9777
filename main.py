@@ -170,7 +170,8 @@ def client_handler(conn, addr):
                     (1, random.randint(1000, 9999)), 
                     (2, [s1]), 
                     (5, "1.012.017"), 
-                    (6, "167"), 
+                    (6, "200"),
+                    (7, 1),
                     (8, "Join our Whatsapp group: https://chat.whatsapp.com/FdTIW31DQjA0QvifT4r89x")
                 ], fn=12)
                 pkg_h = encode_sproto([(1, session)], fn=2)
