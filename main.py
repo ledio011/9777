@@ -164,7 +164,7 @@ def client_handler(conn, addr):
                 
                 resp_state = 0 if req_id in accounts and accounts[req_id] == req_key else 1
                 
-                s1 = encode_sproto([(0,1),(1,"Vice City Main"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
+                s1 = encode_sproto([(0,1),(1,"Global+001"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
                 resp = encode_sproto([
                     (0, resp_state), 
                     (1, random.randint(1000, 9999)), 
