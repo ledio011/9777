@@ -205,6 +205,12 @@ def client_handler(conn, addr):
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h); conn.sendall(struct.pack(">H", len(full)) + full)
 
+            elif msg_type == 118: # random_name
+                name = f"Hero_{random.randint(1000,9999)}"
+                resp = encode_sproto([(0, name)], fn=1)
+                pkg_h = encode_sproto([(1, session)], fn=2)
+                full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
+
     except Exception:
         pass
     finally:
