@@ -2,7 +2,7 @@ import socket, struct, threading, random, json, os, time, traceback
 
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
-GAME_HOST = "autotheftserver-production.up.railway.app"
+GAME_HOST = "127.0.0.1"
 GAME_PORT = 9555
 
 def load_accounts():
