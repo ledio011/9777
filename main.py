@@ -36,11 +36,11 @@ def encode_sproto(fields, fn=None):
             header.append(0)
             if isinstance(val, str): v = val.encode('utf-8')
             elif isinstance(val, list):
-                v = bytearray()
-                for item in val: v += struct.pack("<I", len(item)) + item
+                # Sproto object lists are just concatenated encoded objects
+                v = b"".join(val)
             elif isinstance(val, dict):
-                v = bytearray()
-                for item in val.values(): v += struct.pack("<I", len(item)) + item
+                # Sproto maps are lists of objects
+                v = b"".join(val.values())
             else: v = val
             body += struct.pack("<I", len(v)) + v
         last_tag = tag
@@ -123,23 +123,23 @@ def client_handler(conn, addr):
                 conn.sendall(struct.pack(">H", len(full)) + full)
 
             elif msg == 3: # verify (FULL ORIGINAL SERVER LIST)
-                s_am1 = encode_sproto([(0,11),(1,"America-01"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,0)])
-                s_am2 = encode_sproto([(0,12),(1,"America-02"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,0)])
-                s_am3 = encode_sproto([(0,13),(1,"America-03"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,0)])
-                s_am4 = encode_sproto([(0,14),(1,"America-04"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,0)])
-                s_am5 = encode_sproto([(0,15),(1,"America-05"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,0)])
-                s_eu1 = encode_sproto([(0,302),(1,"Europe-01"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,1)])
-                s_eu2 = encode_sproto([(0,303),(1,"Europe-02"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,1)])
-                s_eu3 = encode_sproto([(0,304),(1,"Europe-03"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,1)])
-                s_eu4 = encode_sproto([(0,305),(1,"Europe-04"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,1)])
-                s_as1 = encode_sproto([(0,602),(1,"Asia-01"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,2)])
-                s_as2 = encode_sproto([(0,603),(1,"Asia-02"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,2)])
-                s_as3 = encode_sproto([(0,604),(1,"Asia-03"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,2)])
-                s_as4 = encode_sproto([(0,605),(1,"Asia-04"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,2)])
-                s_as5 = encode_sproto([(0,606),(1,"Asia-05"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,2)])
-                s_as6 = encode_sproto([(0,607),(1,"Asia-06"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(6,2)])
+                s_am1 = encode_sproto([(0,11),(1,"America-01"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,0)], 11)
+                s_am2 = encode_sproto([(0,12),(1,"America-02"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,0)], 11)
+                s_am3 = encode_sproto([(0,13),(1,"America-03"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,0)], 11)
+                s_am4 = encode_sproto([(0,14),(1,"America-04"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,0)], 11)
+                s_am5 = encode_sproto([(0,15),(1,"America-05"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,0)], 11)
+                s_eu1 = encode_sproto([(0,302),(1,"Europe-01"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,1)], 11)
+                s_eu2 = encode_sproto([(0,303),(1,"Europe-02"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,1)], 11)
+                s_eu3 = encode_sproto([(0,304),(1,"Europe-03"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,1)], 11)
+                s_eu4 = encode_sproto([(0,305),(1,"Europe-04"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,1)], 11)
+                s_as1 = encode_sproto([(0,602),(1,"Asia-01"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,2)], 11)
+                s_as2 = encode_sproto([(0,603),(1,"Asia-02"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,2)], 11)
+                s_as3 = encode_sproto([(0,604),(1,"Asia-03"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,2)], 11)
+                s_as4 = encode_sproto([(0,605),(1,"Asia-04"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,2)], 11)
+                s_as5 = encode_sproto([(0,606),(1,"Asia-05"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,2)], 11)
+                s_as6 = encode_sproto([(0,607),(1,"Asia-06"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,2)], 11)
                 resp = encode_sproto([
-                    (0,0), (1,1234), (2,[s_am1, s_am2, s_am3, s_am4, s_am5, s_eu1, s_eu2, s_eu3, s_eu4, s_as1, s_as2, s_as3, s_as4, s_as5, s_as6]),
+                    (0,0), (1,session), (2,[s_am1, s_am2, s_am3, s_am4, s_am5, s_eu1, s_eu2, s_eu3, s_eu4, s_as1, s_as2, s_as3, s_as4, s_as5, s_as6]),
                     (5,"1.012.017"), (6,"167"), (7,0), (8,"Original Server List Restored")
                 ])
                 full = sproto_pack(encode_sproto([(1, session)]) + resp)
