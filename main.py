@@ -140,9 +140,19 @@ def client_handler(conn, addr):
                 s_as4 = encode_sproto([(0,605),(1,"Asia-04"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,2)], 11)
                 s_as5 = encode_sproto([(0,606),(1,"Asia-05"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,2)], 11)
                 s_as6 = encode_sproto([(0,607),(1,"Asia-06"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,2)], 11)
+                
+                # Rregullimi i struktures sipas SprotoType/verfiy.cs
                 resp = encode_sproto([
-                    (0,0), (1,session), (2,[s_am1, s_am2, s_am3, s_am4, s_am5, s_eu1, s_eu2, s_eu3, s_eu4, s_as1, s_as2, s_as3, s_as4, s_as5, s_as6]),
-                    (5,"1.012.017"), (6,"167"), (7,0), (8,"Original Server List Restored")
+                    (0, 0),                         # state
+                    (1, session),                   # session
+                    (2, [s_am1, s_am2, s_am3, s_am4, s_am5, s_eu1, s_eu2, s_eu3, s_eu4, s_as1, s_as2, s_as3, s_as4, s_as5, s_as6]), # game_server list
+                    (3, ""),                        # user_server (bosh per momentin)
+                    (4, 0),                         # facebook_bind
+                    (5, "1.012.017"),               # versionCode
+                    (6, "167"),                     # dataVersionCode
+                    (7, 1),                         # downloadFlag (1 = finish/skip)
+                    (8, "Original Server List Restored"), # notice
+                    (9, "1.0")                      # notice_version
                 ])
                 full = sproto_pack(encode_sproto([(1, session)]) + resp)
                 conn.sendall(struct.pack(">H", len(full)) + full)
