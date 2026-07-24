@@ -116,7 +116,13 @@ def client_handler(conn, addr):
             print(f"[RX] MSG {msg} Session {session} RawLen {len(raw)}")
             body = decode_sproto(raw, 2 + (struct.unpack("<H", raw[:2])[0] * 2))
 
-            if msg == 2: # visitor
+            if msg == 4: # login (Kerkon llogarine pas lidhjes se pare)
+                acc_id = body.get(1, b"").decode('utf-8') if isinstance(body.get(1), bytes) else str(body.get(1))
+                resp = encode_sproto([(0, 1), (1, "1.012.017"), (2, "167"), (3, 1)], 4)
+                ph = encode_sproto([(1, session)], 2); pf = sproto_pack(ph + resp)
+                conn.sendall(struct.pack(">H", len(pf)) + pf)
+
+            elif msg == 2: # visitor
                 uid = "68" + "".join([str(random.randint(0,9)) for _ in range(12)])
                 key = "".join([str(random.randint(0,9)) for _ in range(12)])
                 accounts[uid] = key; save_accounts(accounts)
