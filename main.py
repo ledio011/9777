@@ -113,7 +113,7 @@ def client_handler(conn, addr):
             while len(data) < size: data += conn.recv(size - len(data))
             raw = sproto_unpack(data); pkg = decode_sproto(raw, 0)
             msg, session = pkg.get(0), pkg.get(1)
-            print(f"[RX] MSG {msg} Session {session}")
+            print(f"[RX] MSG {msg} Session {session} RawLen {len(raw)}")
             body = decode_sproto(raw, 2 + (struct.unpack("<H", raw[:2])[0] * 2))
 
             if msg == 2: # visitor
