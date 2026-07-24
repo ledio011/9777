@@ -2,8 +2,8 @@ import socket, struct, threading, random, json, os, time, traceback
 
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
-GAME_HOST = "127.0.0.1"
-GAME_PORT = 9555
+GAME_HOST = "tokaido.proxy.rlwy.net"
+GAME_PORT = 48282
 
 def load_accounts():
     if os.path.exists(DB_FILE):
