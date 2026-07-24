@@ -99,6 +99,7 @@ def handle_http_request(conn, addr, initial_data):
     finally: conn.close()
 
 def client_handler(conn, addr):
+    print(f"[+] Login Connection from: {addr}")
     try:
         peek = conn.recv(4, socket.MSG_PEEK)
         if peek.startswith(b"GET "):
@@ -112,6 +113,7 @@ def client_handler(conn, addr):
             while len(data) < size: data += conn.recv(size - len(data))
             raw = sproto_unpack(data); pkg = decode_sproto(raw, 0)
             msg, session = pkg.get(0), pkg.get(1)
+            print(f"[RX] MSG {msg} Session {session}")
             body = decode_sproto(raw, 2 + (struct.unpack("<H", raw[:2])[0] * 2))
 
             if msg == 2: # visitor
