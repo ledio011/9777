@@ -196,7 +196,8 @@ def client_handler(conn, addr):
                 print(f"[VERIFY] {req_id}")
                 resp_state = 0 if req_id in accounts and accounts[req_id] == req_key else 1
                 s1 = encode_sproto([(0,1),(1,"Vice City Main"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(10,1)], fn=11)
-                resp = encode_sproto([(0,resp_state),(1,random.randint(1000,9999)),(2,[s1]),(5,"1.012.017"),(6,"167"),(7,1),(8,"Checking Original CDN")], fn=12)
+                # Ndryshuar Tag 7 ne 0 per te shmangur "Download Error" pasi hartat i kemi built-in
+                resp = encode_sproto([(0,resp_state),(1,random.randint(1000,9999)),(2,[s1]),(5,"1.012.017"),(6,"167"),(7,0),(8,"Internal Assets Active")], fn=12)
                 pkg_h = encode_sproto([(1, session)], fn=2)
                 full = sproto_pack(pkg_h + resp); conn.sendall(struct.pack(">H", len(full)) + full)
 
