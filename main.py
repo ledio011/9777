@@ -133,7 +133,7 @@ def client_handler(conn, addr):
             elif msg == 3: # verify (SERVER LIST)
                 s_am1 = encode_sproto([(0,11),(1,"America-01"),(2,GAME_HOST),(3,GAME_PORT),(4,1),(5,1),(6,0)], 11)
                 resp = encode_sproto([
-                    (0, 0), (1, session), (2, [s_am1]), (3, ""), (4, 0),
+                    (0, -1), (1, session), (2, [s_am1]), (3, ""), (4, 0),
                     (5, "1.012.017"), (6, "167"), (7, 1), (8, "Welcome!"), (9, "1.0")
                 ])
                 full = sproto_pack(encode_sproto([(1, session)]) + resp)
