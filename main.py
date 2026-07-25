@@ -87,31 +87,23 @@ def decode_sproto(data, offset=0):
         return {}
 
     fn = struct.unpack("<H", data[offset:offset + 2])[0]
-    records = []
-    for idx in range(fn):
-        pos = offset + 2 + idx * 2
-        records.append(struct.unpack("<H", data[pos:pos + 2])[0])
-
-    body_pos = offset + 2 + fn * 2
-    fields = {}
-    current_tag = -1
-
-    for record in records:
-        current_tag += 1
-        if record == 1:
-            fields[current_tag] = None
-            continue
-        if record & 1:
-            current_tag += record // 2
-            continue
-        if record == 0:
-            size = struct.unpack("<I", data[body_pos:body_pos + 4])[0]
-            body_pos += 4
-            fields[current_tag] = data[body_pos:body_pos + size]
-            body_pos += size
+    h_ptr, b_ptr = offset + 2, offset + 2 + fn * 2
+    fields, curr_tag = {}, -1
+    for i in range(fn):
+        v = struct.unpack("<H", data[h_ptr + i * 2: h_ptr + i * 2 + 2])[0]
+        if v == 0:
+            curr_tag += 1
+            if b_ptr + 4 <= len(data):
+                l = struct.unpack("<I", data[b_ptr:b_ptr + 4])[0]
+                fields[curr_tag] = data[b_ptr + 4:b_ptr + 4 + l]
+                b_ptr += 4 + l
+        elif v == 1:
+            curr_tag += 1
+        elif v & 1:
+            curr_tag += (v >> 1) + 1
         else:
-            fields[current_tag] = record // 2 - 1
-
+            curr_tag += 1
+            fields[curr_tag] = (v >> 1) - 1
     return fields
 
 
@@ -188,7 +180,7 @@ def build_verify_response(session, game_servers, state=0):
         (0, state),
         (1, session),
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
-        (3, "302"), # Recommended Europe server (ServerID 302)
+        (3, "302#303"), # Recommended Europe servers
         (5, "1.012.017"),
         (6, "200"),
         (7, 0),
@@ -211,9 +203,24 @@ def handle_message(msg, session, body=None):
     if msg == 3:
         # Data from ServerData table
         servers = [
+            # Europe (Area 1)
             build_game_server(302, "EU-001(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(303, "EU-002(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(304, "EU-003(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(305, "EU-004(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            # Asia (Area 2)
             build_game_server(602, "AS-001(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(603, "AS-002(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(604, "AS-003(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(605, "AS-004(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(606, "AS-005(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(607, "AS-006(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            # America (Area 0)
             build_game_server(11, "AM-001(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
+            build_game_server(12, "AM-002(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
+            build_game_server(13, "AM-003(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
+            build_game_server(14, "AM-004(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
+            build_game_server(15, "AM-005(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
         ]
         return build_verify_response(session, servers, 0)
 
@@ -228,9 +235,24 @@ def handle_message(msg, session, body=None):
     if msg == 7:
         # Data from ServerData table
         servers = [
+            # Europe (Area 1)
             build_game_server(302, "EU-001(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(303, "EU-002(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(304, "EU-003(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(305, "EU-004(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            # Asia (Area 2)
             build_game_server(602, "AS-001(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(603, "AS-002(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(604, "AS-003(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(605, "AS-004(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(606, "AS-005(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(607, "AS-006(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            # America (Area 0)
             build_game_server(11, "AM-001(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
+            build_game_server(12, "AM-002(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
+            build_game_server(13, "AM-003(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
+            build_game_server(14, "AM-004(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
+            build_game_server(15, "AM-005(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
         ]
         return build_update_game_server_response(servers)
 
