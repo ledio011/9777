@@ -162,13 +162,15 @@ def sproto_unpack(data):
     return bytes(out)
 
 
-def build_game_server(server_id, name, host, port, state=1):
+def build_game_server(server_id, name, host, port, state=0):
     return encode_sproto([
         (0, server_id),
         (1, name),
         (2, host),
         (3, port),
         (4, state),
+        (6, 1),
+        (7, 1),
     ])
 
 
@@ -181,11 +183,11 @@ def build_verify_response(session, game_servers, state=0):
         (0, state),
         (1, session),
         (2, game_servers),
-        (3, ""),
+        (3, "1"),
         (4, 0),
         (5, "1.012.017"),
-        (6, "167"),
-        (7, 1),
+        (6, "200"),
+        (7, 0),
         (8, "Welcome!"),
         (9, "1.0"),
     ])
@@ -205,20 +207,25 @@ def handle_message(msg, session, body=None):
 
     if msg == 3:
         servers = [
-            build_game_server(1, "Europe", GAME_HOST, 48282, 1),
-            build_game_server(2, "Asia", GAME_HOST, 48282, 1),
-            build_game_server(3, "America", GAME_HOST, 48282, 1),
+            build_game_server(1, "Europe", GAME_HOST, 48282, 0),
+            build_game_server(2, "Asia", GAME_HOST, 48282, 0),
+            build_game_server(3, "America", GAME_HOST, 48282, 0),
         ]
         return build_verify_response(session, servers, 0)
 
     if msg == 4:
-        return encode_sproto([(0, 1), (1, "1.012.017"), (2, "167"), (3, 1)])
+        return encode_sproto([
+            (0, 1),
+            (1, "1.012.017"),
+            (2, "200"),
+            (3, 0)
+        ])
 
     if msg == 7:
         servers = [
-            build_game_server(1, "Europe", GAME_HOST, 48282, 1),
-            build_game_server(2, "Asia", GAME_HOST, 48282, 1),
-            build_game_server(3, "America", GAME_HOST, 48282, 1),
+            build_game_server(1, "Europe", GAME_HOST, 48282, 0),
+            build_game_server(2, "Asia", GAME_HOST, 48282, 0),
+            build_game_server(3, "America", GAME_HOST, 48282, 0),
         ]
         return build_update_game_server_response(servers)
 
