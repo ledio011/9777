@@ -9,7 +9,7 @@ import traceback
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
 GAME_HOST = "tokaido.proxy.rlwy.net"
-GAME_PORT = 48282
+GAME_PORT = 9555
 
 
 def load_accounts():
@@ -162,15 +162,20 @@ def sproto_unpack(data):
     return bytes(out)
 
 
-def build_game_server(server_id, name, host, port, state=0):
+def build_game_server(server_id, name, host, port, area, timezone):
+    # Matches SprotoType.game_server (Tags 0-10) and ServerData table
     return encode_sproto([
-        (0, server_id),
-        (1, name),
-        (2, host),
-        (3, port),
-        (4, state),
-        (6, 1),
-        (7, 1),
+        (0, server_id),   # serverId
+        (1, name),        # serverName
+        (2, host),        # serverIP
+        (3, port),        # serverPort
+        (4, 1),           # serverState: 1=Normal (Yellow in GameDefine.cs)
+        (5, -4),          # serverPlayerState: -4=Normal load
+        (6, area),        # serverArea: 1=Europe, 0=America, 2=Asia
+        (7, 1),           # serverRank
+        (8, timezone),    # serverTimeZone
+        (9, 1),           # serverWeight
+        (10, 0),          # newServer: 0=Old
     ])
 
 
@@ -182,18 +187,17 @@ def build_verify_response(session, game_servers, state=0):
     return encode_sproto([
         (0, state),
         (1, session),
-        (3, "1"),
-        (4, 0),
+        (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
+        (3, "302"), # Recommended Europe server (ServerID 302)
         (5, "1.012.017"),
         (6, "200"),
         (7, 0),
-        (8, "Welcome!"),
-        (9, "1.0"),
+        (8, "Welcome to Auto Theft Revival!"),
     ])
 
 
 def build_update_game_server_response(game_servers):
-    return encode_sproto([(2, game_servers)])
+    return encode_sproto([(2, [struct.pack("<I", len(s)) + s for s in game_servers])])
 
 
 def handle_message(msg, session, body=None):
@@ -205,26 +209,28 @@ def handle_message(msg, session, body=None):
         return build_visitor_response(uid, key, 0)
 
     if msg == 3:
+        # Data from ServerData table
         servers = [
-            build_game_server(1, "Europe", GAME_HOST, 48282, 0),
-            build_game_server(2, "Asia", GAME_HOST, 48282, 0),
-            build_game_server(3, "America", GAME_HOST, 48282, 0),
+            build_game_server(302, "EU-001(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(602, "AS-001(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(11, "AM-001(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
         ]
         return build_verify_response(session, servers, 0)
 
     if msg == 4:
         return encode_sproto([
-            (0, 1),
+            (0, 2),
             (1, "1.012.017"),
             (2, "200"),
-            (3, 0)
+            (3, 1)
         ])
 
     if msg == 7:
+        # Data from ServerData table
         servers = [
-            build_game_server(1, "Europe", GAME_HOST, 48282, 0),
-            build_game_server(2, "Asia", GAME_HOST, 48282, 0),
-            build_game_server(3, "America", GAME_HOST, 48282, 0),
+            build_game_server(302, "EU-001(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(602, "AS-001(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(11, "AM-001(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
         ]
         return build_update_game_server_response(servers)
 
