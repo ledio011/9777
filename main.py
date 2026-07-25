@@ -182,7 +182,6 @@ def build_verify_response(session, game_servers, state=0):
     return encode_sproto([
         (0, state),
         (1, session),
-        (2, game_servers),
         (3, "1"),
         (4, 0),
         (5, "1.012.017"),
@@ -290,8 +289,13 @@ def client_handler(conn, addr):
             print(f"[RX] MSG {msg} Session {session} RawLen {len(raw)}")
 
             response_body = handle_message(msg, session, None)
-            response_pkg = encode_sproto([(1, session)])
-            full = sproto_pack(response_pkg + response_body)
+            print("[TX BODY]", response_body.hex(), "LEN", len(response_body))
+
+            response = encode_sproto([
+                (1, session)
+            ]) + response_body
+
+            full = sproto_pack(response)
             conn.sendall(struct.pack(">H", len(full)) + full)
     except Exception:
         traceback.print_exc()
