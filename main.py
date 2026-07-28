@@ -169,19 +169,18 @@ def sproto_unpack(data):
 
 
 def build_game_server(server_id, name, host, port, area, timezone):
-    # Matches SprotoType.game_server (Tags 0-10) and ServerData table
     return encode_sproto([
-        (0, server_id),   # serverId
-        (1, name),        # serverName
-        (2, host),        # serverIP
-        (3, port),        # serverPort
-        (4, 1),           # serverState: 1=Normal (Yellow in GameDefine.cs)
-        (5, -4),          # serverPlayerState: -4=Normal load
-        (6, area),        # serverArea: 1=Europe, 0=America, 2=Asia
-        (7, 1),           # serverRank
-        (8, timezone),    # serverTimeZone
-        (9, 1),           # serverWeight
-        (10, 0),          # newServer: 0=Old
+        (0, server_id),
+        (1, name),
+        (2, host),
+        (3, port),
+        (4, 1),
+        (5, -4),
+        (6, area),
+        (7, 1),
+        (8, timezone),
+        (9, 1),
+        (10, 0),
     ])
 
 
@@ -194,11 +193,7 @@ def build_verify_response(session, game_servers, state=0):
         (0, state),
         (1, session),
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
-        (3, "302#303"), # Recommended Europe servers
-        (5, "1.012.017"),
-        (6, "200"),
-        (7, 0),
-        (8, "Welcome to Auto Theft Revival!"),
+        (3, "302#303"),
     ])
 
 
@@ -239,16 +234,14 @@ def handle_message(msg, session, body=None):
         return build_verify_response(session, servers, 0)
 
     if msg == 4:
-        # Matches login.response (Tag 4)
         return encode_sproto([
-            (0, 2),              # type: 2=Login Success
-            (1, "1.012.017"),    # versionCode
-            (2, "200"),          # dataVersionCode
-            (3, 1)               # serverLevel
+            (0, 2),
+            (1, "1.012.017"),
+            (2, "200"),
+            (3, 1)
         ])
 
     if msg == 7:
-        # Matches update_game_server (Tag 7)
         # Data from ServerData table
         servers = [
             # Europe (Area 1)
@@ -296,22 +289,15 @@ def handle_http_request(conn, addr, initial_data):
             return
         path = lines[0].split(" ")[1].lstrip("/")
         print(f"[HTTP] GET /{path}")
-
-        # Priority: exact path, then assets/path
-        full_path = path
-        if not os.path.exists(full_path) or not os.path.isfile(full_path):
-            full_path = os.path.join("assets", path)
-
-        if os.path.exists(full_path) and os.path.isfile(full_path):
-            with open(full_path, "rb") as f:
+        if os.path.exists(path) and os.path.isfile(path):
+            with open(path, "rb") as f:
                 content = f.read()
             response = b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(content)).encode() + b"\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n"
             conn.sendall(response + content)
         else:
-            print(f"[HTTP] 404: {path} (tried {full_path})")
             conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
     except Exception:
-        traceback.print_exc()
+        pass
     finally:
         conn.close()
 
