@@ -239,14 +239,16 @@ def handle_message(msg, session, body=None):
         return build_verify_response(session, servers, 0)
 
     if msg == 4:
+        # Matches login.response (Tag 4)
         return encode_sproto([
-            (0, 2),
-            (1, "1.012.017"),
-            (2, "200"),
-            (3, 1)
+            (0, 2),              # type: 2=Login Success
+            (1, "1.012.017"),    # versionCode
+            (2, "200"),          # dataVersionCode
+            (3, 1)               # serverLevel
         ])
 
     if msg == 7:
+        # Matches update_game_server (Tag 7)
         # Data from ServerData table
         servers = [
             # Europe (Area 1)
