@@ -2,6 +2,7 @@ import json
 import os
 import random
 import socket
+import sqlite3
 import struct
 import threading
 import traceback
@@ -10,6 +11,122 @@ PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
 GAME_HOST = "tokaido.proxy.rlwy.net"
 GAME_PORT = 48282
+
+class RevivalDB:
+    def __init__(self, db_name="game_world.db"):
+        self.db_name = db_name
+        self.lock = threading.Lock()
+        self._init_db()
+
+    def _init_db(self):
+        try:
+            with self.lock:
+                conn = sqlite3.connect(self.db_name)
+                c = conn.cursor()
+                c.execute("CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, key TEXT)")
+                c.execute("CREATE TABLE IF NOT EXISTS characters (id INTEGER PRIMARY KEY, account_id TEXT, area_id INTEGER, name TEXT, prof INTEGER, level INTEGER, exp INTEGER, map_id TEXT, x INTEGER, y INTEGER, z INTEGER, o INTEGER, hp INTEGER)")
+                conn.commit()
+                conn.close()
+        except Exception:
+            traceback.print_exc()
+
+    def execute(self, query, params=()):
+        try:
+            with self.lock:
+                conn = sqlite3.connect(self.db_name)
+                c = conn.cursor()
+                c.execute(query, params)
+                conn.commit()
+                conn.close()
+        except Exception:
+            traceback.print_exc()
+
+    def fetchone(self, query, params=()):
+        try:
+            with self.lock:
+                conn = sqlite3.connect(self.db_name)
+                c = conn.cursor()
+                c.execute(query, params)
+                row = c.fetchone()
+                conn.close()
+                return row
+        except Exception:
+            traceback.print_exc()
+            return None
+
+    def fetchall(self, query, params=()):
+        try:
+            with self.lock:
+                conn = sqlite3.connect(self.db_name)
+                c = conn.cursor()
+                c.execute(query, params)
+                rows = c.fetchall()
+                conn.close()
+                return rows
+        except Exception:
+            traceback.print_exc()
+            return []
+
+db = RevivalDB()
+
+
+class RevivalDB:
+    def __init__(self, db_name="game_world.db"):
+        self.db_name = db_name
+        self.lock = threading.Lock()
+        self._init_db()
+
+    def _init_db(self):
+        try:
+            with self.lock:
+                conn = sqlite3.connect(self.db_name)
+                c = conn.cursor()
+                c.execute("CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, key TEXT)")
+                c.execute("CREATE TABLE IF NOT EXISTS characters (id INTEGER PRIMARY KEY, account_id TEXT, area_id INTEGER, name TEXT, prof INTEGER, level INTEGER, exp INTEGER, map_id TEXT, x INTEGER, y INTEGER, z INTEGER, o INTEGER, hp INTEGER)")
+                conn.commit()
+                conn.close()
+        except Exception:
+            traceback.print_exc()
+
+    def execute(self, query, params=()):
+        try:
+            with self.lock:
+                conn = sqlite3.connect(self.db_name)
+                c = conn.cursor()
+                c.execute(query, params)
+                conn.commit()
+                conn.close()
+        except Exception:
+            traceback.print_exc()
+
+    def fetchone(self, query, params=()):
+        try:
+            with self.lock:
+                conn = sqlite3.connect(self.db_name)
+                c = conn.cursor()
+                c.execute(query, params)
+                row = c.fetchone()
+                conn.close()
+                return row
+        except Exception:
+            traceback.print_exc()
+            return None
+
+    def fetchall(self, query, params=()):
+        try:
+            with self.lock:
+                conn = sqlite3.connect(self.db_name)
+                c = conn.cursor()
+                c.execute(query, params)
+                rows = c.fetchall()
+                conn.close()
+                return rows
+        except Exception:
+            traceback.print_exc()
+            return []
+
+
+db = RevivalDB()
 
 
 def load_accounts():
@@ -198,6 +315,7 @@ def handle_message(msg, session, body=None):
         key = "".join(str(random.randint(0, 9)) for _ in range(12))
         accounts[uid] = key
         save_accounts(accounts)
+        db.execute("INSERT OR REPLACE INTO accounts (id, key) VALUES (?, ?)", (uid, key))
         return build_visitor_response(uid, key, 0)
 
     if msg == 3:
