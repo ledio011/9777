@@ -56,37 +56,23 @@ def encode_sproto(fields, fn=None):
                 header.append((value + 1) * 2)
             else:
                 header.append(0)
-                if -2147483648 <= value <= 2147483647:
-                    body += struct.pack("<I", 4) + struct.pack("<i", value)
-                else:
-                    body += struct.pack("<I", 8) + struct.pack("<q", value)
-        elif isinstance(value, (str, bytes, bytearray, list, dict)):
+                body += struct.pack("<I", 4) + struct.pack("<I", value & 0xFFFFFFFF)
+        elif isinstance(value, str):
             header.append(0)
-            if isinstance(value, str):
-                v = value.encode('utf-8')
-            elif isinstance(value, list):
-                if value and isinstance(value[0], int):
-                    v = b"\x04" + b"".join([struct.pack("<i", item) for item in value])
-                else:
-                    items = []
-                    for item in value:
-                        if isinstance(item, str): item = item.encode('utf-8')
-                        elif isinstance(item, (bytes, bytearray)): pass
-                        else: item = str(item).encode('utf-8')
-                        items.append(struct.pack("<I", len(item)) + item)
-                    v = b"".join(items)
-            elif isinstance(value, dict):
-                items = []
-                for item in value.values():
-                    if isinstance(item, str): item = item.encode('utf-8')
-                    if isinstance(item, (bytes, bytearray)):
-                        items.append(struct.pack("<I", len(item)) + item)
-                    else:
-                        items.append(struct.pack("<I", 1) + (b'\x01' if item else b'\x00'))
-                v = b"".join(items)
-            else:
-                v = value
-            body += struct.pack("<I", len(v)) + v
+            payload = value.encode("utf-8")
+            body += struct.pack("<I", len(payload)) + payload
+        elif isinstance(value, (bytes, bytearray)):
+            header.append(0)
+            payload = bytes(value)
+            body += struct.pack("<I", len(payload)) + payload
+        elif isinstance(value, list):
+            header.append(0)
+            payload = b"".join(value)
+            body += struct.pack("<I", len(payload)) + payload
+        else:
+            header.append(0)
+            payload = str(value).encode("utf-8")
+            body += struct.pack("<I", len(payload)) + payload
 
         last_tag = tag
 
@@ -169,18 +155,19 @@ def sproto_unpack(data):
 
 
 def build_game_server(server_id, name, host, port, area, timezone):
+    # Matches SprotoType.game_server (Tags 0-10) and ServerData table
     return encode_sproto([
-        (0, server_id),
-        (1, name),
-        (2, host),
-        (3, port),
-        (4, 1),
-        (5, -4),
-        (6, area),
-        (7, 1),
-        (8, timezone),
-        (9, 1),
-        (10, 0),
+        (0, server_id),   # serverId
+        (1, name),        # serverName
+        (2, host),        # serverIP
+        (3, port),        # serverPort
+        (4, 1),           # serverState: 1=Normal (Yellow in GameDefine.cs)
+        (5, -4),          # serverPlayerState: -4=Normal load
+        (6, area),        # serverArea: 1=Europe, 0=America, 2=Asia
+        (7, 1),           # serverRank
+        (8, timezone),    # serverTimeZone
+        (9, 1),           # serverWeight
+        (10, 0),          # newServer: 0=Old
     ])
 
 
@@ -193,7 +180,11 @@ def build_verify_response(session, game_servers, state=0):
         (0, state),
         (1, session),
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
-        (3, "302#303"),
+        (3, "302#303"), # Recommended Europe servers
+        (5, "1.012.017"),
+        (6, "200"),
+        (7, 0),
+        (8, "Welcome to Auto Theft Revival!"),
     ])
 
 
