@@ -56,23 +56,37 @@ def encode_sproto(fields, fn=None):
                 header.append((value + 1) * 2)
             else:
                 header.append(0)
-                body += struct.pack("<I", 4) + struct.pack("<I", value & 0xFFFFFFFF)
-        elif isinstance(value, str):
+                if -2147483648 <= value <= 2147483647:
+                    body += struct.pack("<I", 4) + struct.pack("<i", value)
+                else:
+                    body += struct.pack("<I", 8) + struct.pack("<q", value)
+        elif isinstance(value, (str, bytes, bytearray, list, dict)):
             header.append(0)
-            payload = value.encode("utf-8")
-            body += struct.pack("<I", len(payload)) + payload
-        elif isinstance(value, (bytes, bytearray)):
-            header.append(0)
-            payload = bytes(value)
-            body += struct.pack("<I", len(payload)) + payload
-        elif isinstance(value, list):
-            header.append(0)
-            payload = b"".join(value)
-            body += struct.pack("<I", len(payload)) + payload
-        else:
-            header.append(0)
-            payload = str(value).encode("utf-8")
-            body += struct.pack("<I", len(payload)) + payload
+            if isinstance(value, str):
+                v = value.encode('utf-8')
+            elif isinstance(value, list):
+                if value and isinstance(value[0], int):
+                    v = b"\x04" + b"".join([struct.pack("<i", item) for item in value])
+                else:
+                    items = []
+                    for item in value:
+                        if isinstance(item, str): item = item.encode('utf-8')
+                        elif isinstance(item, (bytes, bytearray)): pass
+                        else: item = str(item).encode('utf-8')
+                        items.append(struct.pack("<I", len(item)) + item)
+                    v = b"".join(items)
+            elif isinstance(value, dict):
+                items = []
+                for item in value.values():
+                    if isinstance(item, str): item = item.encode('utf-8')
+                    if isinstance(item, (bytes, bytearray)):
+                        items.append(struct.pack("<I", len(item)) + item)
+                    else:
+                        items.append(struct.pack("<I", 1) + (b'\x01' if item else b'\x00'))
+                v = b"".join(items)
+            else:
+                v = value
+            body += struct.pack("<I", len(v)) + v
 
         last_tag = tag
 
@@ -280,15 +294,22 @@ def handle_http_request(conn, addr, initial_data):
             return
         path = lines[0].split(" ")[1].lstrip("/")
         print(f"[HTTP] GET /{path}")
-        if os.path.exists(path) and os.path.isfile(path):
-            with open(path, "rb") as f:
+
+        # Priority: exact path, then assets/path
+        full_path = path
+        if not os.path.exists(full_path) or not os.path.isfile(full_path):
+            full_path = os.path.join("assets", path)
+
+        if os.path.exists(full_path) and os.path.isfile(full_path):
+            with open(full_path, "rb") as f:
                 content = f.read()
             response = b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(content)).encode() + b"\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n"
             conn.sendall(response + content)
         else:
+            print(f"[HTTP] 404: {path} (tried {full_path})")
             conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
     except Exception:
-        pass
+        traceback.print_exc()
     finally:
         conn.close()
 
