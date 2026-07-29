@@ -5,69 +5,12 @@ import socket
 import struct
 import threading
 import traceback
-import sqlite3
 
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
 GAME_HOST = "tokaido.proxy.rlwy.net"
 GAME_PORT = 48282
 
-class RevivalDB:
-    def __init__(self, db_name="game_world.db"):
-        self.db_name = db_name
-        self.lock = threading.Lock()
-        self._init_db()
-
-    def _init_db(self):
-        try:
-            with self.lock:
-                conn = sqlite3.connect(self.db_name)
-                c = conn.cursor()
-                c.execute("CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, key TEXT)")
-                c.execute("CREATE TABLE IF NOT EXISTS characters (id INTEGER PRIMARY KEY, account_id TEXT, area_id INTEGER, name TEXT, prof INTEGER, level INTEGER, exp INTEGER, map_id TEXT, x INTEGER, y INTEGER, z INTEGER, o INTEGER, hp INTEGER, tutorial INTEGER, kill_count INTEGER)")
-                conn.commit()
-                conn.close()
-        except Exception:
-            traceback.print_exc()
-
-    def execute(self, query, params=()):
-        try:
-            with self.lock:
-                conn = sqlite3.connect(self.db_name)
-                c = conn.cursor()
-                c.execute(query, params)
-                conn.commit()
-                conn.close()
-        except Exception:
-            traceback.print_exc()
-
-    def fetchone(self, query, params=()):
-        try:
-            with self.lock:
-                conn = sqlite3.connect(self.db_name)
-                c = conn.cursor()
-                c.execute(query, params)
-                row = c.fetchone()
-                conn.close()
-                return row
-        except Exception:
-            traceback.print_exc()
-            return None
-
-    def fetchall(self, query, params=()):
-        try:
-            with self.lock:
-                conn = sqlite3.connect(self.db_name)
-                c = conn.cursor()
-                c.execute(query, params)
-                rows = c.fetchall()
-                conn.close()
-                return rows
-        except Exception:
-            traceback.print_exc()
-            return []
-
-db = RevivalDB()
 
 def load_accounts():
     if os.path.exists(DB_FILE):
@@ -78,6 +21,7 @@ def load_accounts():
             return {}
     return {}
 
+
 def save_accounts(accs):
     try:
         with open(DB_FILE, "w") as f:
@@ -85,7 +29,9 @@ def save_accounts(accs):
     except Exception:
         pass
 
+
 accounts = load_accounts()
+
 
 def encode_sproto(fields, fn=None):
     if not fields:
@@ -135,6 +81,7 @@ def encode_sproto(fields, fn=None):
         res += struct.pack("<H", item)
     return res + body
 
+
 def decode_sproto(data, offset=0):
     if len(data) < offset + 2:
         return {}
@@ -159,6 +106,7 @@ def decode_sproto(data, offset=0):
             fields[curr_tag] = (v >> 1) - 1
     return fields
 
+
 def sproto_pack(data):
     out = bytearray()
     for i in range(0, len(data), 8):
@@ -179,6 +127,7 @@ def sproto_pack(data):
                 if mask & (1 << j):
                     out.append(chunk[j])
     return bytes(out)
+
 
 def sproto_unpack(data):
     out = bytearray()
@@ -204,38 +153,44 @@ def sproto_unpack(data):
                     out.append(0)
     return bytes(out)
 
+
 def build_game_server(server_id, name, host, port, area, timezone):
+    # Matches SprotoType.game_server (Tags 0-10) and ServerData table
     return encode_sproto([
-        (0, server_id),
-        (1, name),
-        (2, host),
-        (3, port),
-        (4, 1),
-        (5, -4),
-        (6, area),
-        (7, 1),
-        (8, timezone),
-        (9, 1),
-        (10, 0),
+        (0, server_id),   # serverId
+        (1, name),        # serverName
+        (2, host),        # serverIP
+        (3, port),        # serverPort
+        (4, 1),           # serverState: 1=Normal (Yellow in GameDefine.cs)
+        (5, -4),          # serverPlayerState: -4=Normal load
+        (6, area),        # serverArea: 1=Europe, 0=America, 2=Asia
+        (7, 1),           # serverRank
+        (8, timezone),    # serverTimeZone
+        (9, 1),           # serverWeight
+        (10, 0),          # newServer: 0=Old
     ])
+
 
 def build_visitor_response(uid, key, state=0):
     return encode_sproto([(0, uid), (1, key), (2, state)])
+
 
 def build_verify_response(session, game_servers, state=0):
     return encode_sproto([
         (0, state),
         (1, session),
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
-        (3, "302#303"),
+        (3, "302#303"), # Recommended Europe servers
         (5, "1.012.017"),
         (6, "200"),
         (7, 0),
         (8, "Welcome to Auto Theft Revival!"),
     ])
 
+
 def build_update_game_server_response(game_servers):
     return encode_sproto([(2, [struct.pack("<I", len(s)) + s for s in game_servers])])
+
 
 def handle_message(msg, session, body=None):
     if msg == 2:
@@ -243,21 +198,24 @@ def handle_message(msg, session, body=None):
         key = "".join(str(random.randint(0, 9)) for _ in range(12))
         accounts[uid] = key
         save_accounts(accounts)
-        db.execute("INSERT OR REPLACE INTO accounts (id, key) VALUES (?, ?)", (uid, key))
         return build_visitor_response(uid, key, 0)
 
     if msg == 3:
+        # Data from ServerData table
         servers = [
+            # Europe (Area 1)
             build_game_server(302, "EU-001(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
             build_game_server(303, "EU-002(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
             build_game_server(304, "EU-003(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
             build_game_server(305, "EU-004(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            # Asia (Area 2)
             build_game_server(602, "AS-001(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(603, "AS-002(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(604, "AS-003(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(605, "AS-004(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(606, "AS-005(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(607, "AS-006(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            # America (Area 0)
             build_game_server(11, "AM-001(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
             build_game_server(12, "AM-002(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
             build_game_server(13, "AM-003(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
@@ -267,25 +225,31 @@ def handle_message(msg, session, body=None):
         return build_verify_response(session, servers, 0)
 
     if msg == 4:
+        v_code = body.get(3, b"1.19").decode('utf-8') if isinstance(body.get(3), bytes) else str(body.get(3, "1.19"))
+        d_code = "200"
         return encode_sproto([
             (0, 2),
-            (1, "1.012.017"),
-            (2, "200"),
+            (1, v_code),
+            (2, d_code),
             (3, 1)
         ])
 
     if msg == 7:
+        # Data from ServerData table
         servers = [
+            # Europe (Area 1)
             build_game_server(302, "EU-001(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
             build_game_server(303, "EU-002(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
             build_game_server(304, "EU-003(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
             build_game_server(305, "EU-004(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
+            # Asia (Area 2)
             build_game_server(602, "AS-001(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(603, "AS-002(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(604, "AS-003(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(605, "AS-004(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(606, "AS-005(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
             build_game_server(607, "AS-006(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
+            # America (Area 0)
             build_game_server(11, "AM-001(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
             build_game_server(12, "AM-002(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
             build_game_server(13, "AM-003(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
@@ -303,6 +267,7 @@ def handle_message(msg, session, body=None):
         return encode_sproto([])
 
     return encode_sproto([])
+
 
 def handle_http_request(conn, addr, initial_data):
     try:
@@ -329,6 +294,7 @@ def handle_http_request(conn, addr, initial_data):
     finally:
         conn.close()
 
+
 def client_handler(conn, addr):
     print(f"[+] Login Connection from: {addr}")
     try:
@@ -352,7 +318,8 @@ def client_handler(conn, addr):
             session = pkg.get(1)
             print(f"[RX] MSG {msg} Session {session} RawLen {len(raw)}")
 
-            response_body = handle_message(msg, session, None)
+            off = 2 + (struct.unpack("<H", raw[:2])[0] * 2); body = decode_sproto(raw, off)
+            response_body = handle_message(msg, session, body)
             print("[TX BODY]", response_body.hex(), "LEN", len(response_body))
 
             response = encode_sproto([
@@ -366,6 +333,7 @@ def client_handler(conn, addr):
     finally:
         conn.close()
 
+
 def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -375,6 +343,7 @@ def start_server():
     while True:
         client, addr = server.accept()
         threading.Thread(target=client_handler, args=(client, addr), daemon=True).start()
+
 
 if __name__ == "__main__":
     start_server()
