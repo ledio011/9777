@@ -182,7 +182,7 @@ def build_verify_response(session, game_servers, state=0):
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
         (3, "302#303"), # Recommended Europe servers
         (5, "1.012.017"),
-        (6, "100"),
+        (6, "000"),
         (7, 1),
         (8, "Welcome to Auto Theft Revival!"),
     ])
