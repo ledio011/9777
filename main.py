@@ -182,8 +182,8 @@ def build_verify_response(session, game_servers, state=0):
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
         (3, "302#303"), # Recommended Europe servers
         (5, "1.012.017"),
-        (6, "200"),
-        (7, 0),
+        (6, "100"),
+        (7, 1),
         (8, "Welcome to Auto Theft Revival!"),
     ])
 
@@ -226,7 +226,7 @@ def handle_message(msg, session, body=None):
 
     if msg == 4:
         v_code = body.get(3, b"1.19").decode('utf-8') if isinstance(body.get(3), bytes) else str(body.get(3, "1.19"))
-        d_code = "000"
+        d_code = "100"
         return encode_sproto([
             (0, 2),
             (1, v_code),
