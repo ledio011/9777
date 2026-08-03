@@ -226,7 +226,7 @@ def handle_message(msg, session, body=None):
 
     if msg == 4:
         v_code = body.get(3, b"1.19").decode('utf-8') if isinstance(body.get(3), bytes) else str(body.get(3, "1.19"))
-        d_code = "200"
+        d_code = "000"
         return encode_sproto([
             (0, 2),
             (1, v_code),
