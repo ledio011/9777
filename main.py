@@ -185,6 +185,7 @@ def build_verify_response(session, game_servers, state=0):
         (6, "200"),
         (7, 1),
         (8, "Welcome to Auto Theft Revival!"),
+        (9, "1"),
     ])
 
 
@@ -264,7 +265,8 @@ def handle_message(msg, session, body=None):
         return encode_sproto([(0, name)])
 
     if msg == 218:
-        return encode_sproto([])
+        t1 = body.get(0, 0)
+        return encode_sproto([(0, t1), (1, int(time.time()))])
 
     return encode_sproto([])
 
