@@ -183,7 +183,7 @@ def build_verify_response(session, game_servers, state=0):
         (3, "302#303"), # Recommended Europe servers
         (5, "1.012.017"),
         (6, "200"),
-        (7, 1),
+        (7, 0),
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
     ])
