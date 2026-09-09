@@ -283,6 +283,10 @@ def handle_http_request(conn, addr, initial_data):
         if not lines:
             return
         path = lines[0].split(" ")[1].lstrip("/")
+        # Try to find the file in the assets folder if not found in root
+        if not os.path.exists(path):
+            path = os.path.join("assets", path)
+            
         print(f"[HTTP] GET /{path}")
         if os.path.exists(path) and os.path.isfile(path):
             with open(path, "rb") as f:
