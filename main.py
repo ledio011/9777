@@ -9,7 +9,7 @@ import traceback
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
 GAME_HOST = "s16.serv00.com"
-GAME_PORT = 1027
+GAME_PORT = 15678
 
 
 def load_accounts():
