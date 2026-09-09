@@ -8,8 +8,8 @@ import traceback
 
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
-GAME_HOST = "tokaido.proxy.rlwy.net"
-GAME_PORT = 48282
+GAME_HOST = "s16.serv00.com"
+GAME_PORT = 1027
 
 
 def load_accounts():
