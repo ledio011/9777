@@ -183,7 +183,7 @@ def build_verify_response(session, game_servers, state=0):
         (3, "302#303"), # Recommended Europe servers
         (5, "1.012.017"),
         (6, "200"),
-        (7, 0),
+        (7, 1), # FORCE DOWNLOAD FLAG ON - Fixes stuck at 0%
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
     ])
@@ -283,31 +283,40 @@ def handle_http_request(conn, addr, initial_data):
         if not lines:
             return
         path = lines[0].split(" ")[1].lstrip("/")
-        # Force lower case check or handle versioned prefix
-        norm_path = path.replace("//", "/")
-        if norm_path.startswith("RES_"):
-             # Some clients might send /RES_200/file.info, some might send /file.info
-             pass 
-
-        local_path = os.path.join("assets", norm_path)
-            
-        print(f"[HTTP] REQUEST: {lines[0].split(' ')[1]} -> LOCAL: {local_path}")
         
-        # Final fallback: if file not found in assets/RES_200, try assets/ directly
-        if not os.path.exists(local_path):
-            parts = norm_path.split("/")
+        # Priority mapping for CDN files: search multiple locations to ensure bundles are found
+        search_paths = [
+            os.path.join("assets", "RES_200", path),
+            os.path.join("assets", path),
+        ]
+        
+        # If the path already has a versioned prefix (e.g. MMO_UNITY4_200), strip it and look in RES_200
+        if "_" in path.split("/")[0]:
+            parts = path.split("/", 1)
             if len(parts) > 1:
-                alt_path = os.path.join("assets", *parts[1:])
-                if os.path.exists(alt_path):
-                    local_path = alt_path
+                search_paths.append(os.path.join("assets", "RES_200", parts[1]))
+                search_paths.append(os.path.join("assets", parts[1]))
 
-        if os.path.exists(local_path) and os.path.isfile(local_path):
+        local_path = None
+        for p in search_paths:
+            p = p.replace("//", "/")
+            if os.path.exists(p) and os.path.isfile(p):
+                local_path = p
+                break
+            
+        print(f"[HTTP] REQUEST: {lines[0].split(' ')[1]} -> FINAL_LOCAL: {local_path}")
+        
+        if local_path:
             with open(local_path, "rb") as f:
                 content = f.read()
-            response = b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(content)).encode() + b"\r\nContent-Type: application/octet-stream\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
+            response = (b"HTTP/1.1 200 OK\r\n"
+                        b"Content-Length: " + str(len(content)).encode() + b"\r\n"
+                        b"Content-Type: application/octet-stream\r\n"
+                        b"Access-Control-Allow-Origin: *\r\n"
+                        b"Connection: close\r\n\r\n")
             conn.sendall(response + content)
         else:
-            print(f"[HTTP] 404 NOT FOUND: {local_path}")
+            print(f"[HTTP] 404 NOT FOUND: {lines[0].split(' ')[1]}")
             conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
     except Exception:
         pass
