@@ -283,14 +283,6 @@ def handle_http_request(conn, addr, initial_data):
         if not lines:
             return
         path = lines[0].split(" ")[1].lstrip("/")
-        
-        # Handle original CDN path structure: MMO_UNITY4_{version}/... or RES_{version}/...
-        if "/" in path:
-            parts = path.split("/", 1)
-            if parts[0].startswith("MMO_UNITY4") or parts[0].startswith("RES"):
-                path = parts[1] # Strip the versioned prefix
-
-        # Try to find the file in the assets folder
         local_path = os.path.join("assets", path)
             
         print(f"[HTTP] GET requested={lines[0].split(' ')[1]} -> local={local_path}")
