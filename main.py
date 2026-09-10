@@ -283,15 +283,31 @@ def handle_http_request(conn, addr, initial_data):
         if not lines:
             return
         path = lines[0].split(" ")[1].lstrip("/")
-        local_path = os.path.join("assets", path)
+        # Force lower case check or handle versioned prefix
+        norm_path = path.replace("//", "/")
+        if norm_path.startswith("RES_"):
+             # Some clients might send /RES_200/file.info, some might send /file.info
+             pass 
+
+        local_path = os.path.join("assets", norm_path)
             
-        print(f"[HTTP] GET requested={lines[0].split(' ')[1]} -> local={local_path}")
+        print(f"[HTTP] REQUEST: {lines[0].split(' ')[1]} -> LOCAL: {local_path}")
+        
+        # Final fallback: if file not found in assets/RES_200, try assets/ directly
+        if not os.path.exists(local_path):
+            parts = norm_path.split("/")
+            if len(parts) > 1:
+                alt_path = os.path.join("assets", *parts[1:])
+                if os.path.exists(alt_path):
+                    local_path = alt_path
+
         if os.path.exists(local_path) and os.path.isfile(local_path):
             with open(local_path, "rb") as f:
                 content = f.read()
-            response = b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(content)).encode() + b"\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n"
+            response = b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(content)).encode() + b"\r\nContent-Type: application/octet-stream\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
             conn.sendall(response + content)
         else:
+            print(f"[HTTP] 404 NOT FOUND: {local_path}")
             conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
     except Exception:
         pass
