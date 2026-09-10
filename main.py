@@ -288,6 +288,8 @@ def handle_http_request(conn, addr, initial_data):
         search_paths = [
             os.path.join("assets", "RES_200", path),
             os.path.join("assets", path),
+            os.path.join("assets", "Bundle", path),
+            os.path.join("assets", "RES_200", "Bundle", path),
         ]
         
         # If the path already has a versioned prefix (e.g. MMO_UNITY4_200), strip it and look in RES_200
