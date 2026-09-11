@@ -182,7 +182,7 @@ def build_verify_response(session, game_servers, state=0):
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
         (3, "302#303"), # Recommended Europe servers
         (5, "1.012.017"), # Match GameSettingData.GameVersion exactly
-        (6, "201"),       # Set ServerDataVersion > LocalDataVersion to trigger expansion download
+        (6, "205"),       # Set ServerDataVersion > LocalDataVersion to trigger expansion download prompt
         (7, 1),           # FORCE DOWNLOAD FLAG ON
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
