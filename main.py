@@ -181,9 +181,9 @@ def build_verify_response(session, game_servers, state=0):
         (1, session),
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
         (3, "302#303"), # Recommended Europe servers
-        (5, "1.012.017"),
+        (5, "1.100.000"), # Set a higher version to trigger download notification
         (6, "200"),
-        (7, 1), # FORCE DOWNLOAD FLAG ON - Fixes stuck at 0%
+        (7, 1), # FORCE DOWNLOAD FLAG ON
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
     ])
