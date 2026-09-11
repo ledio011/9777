@@ -227,7 +227,7 @@ def handle_message(msg, session, body=None):
 
     if msg == 4:
         return encode_sproto([
-            (0, 0), # type: 0
+            (0, 2), # type: 2
             (1, "1.012.017"), # versionCode
             (2, "205"),       # dataVersionCode
             (3, 1)            # serverLevel
