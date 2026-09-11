@@ -50,7 +50,7 @@ def encode_sproto(fields, fn=None):
         if value is None:
             header.append(1)
         elif isinstance(value, bool):
-            header.append((1 if value else 0) * 2)
+            header.append((1 if value else 0) * 2 + 2)
         elif isinstance(value, int):
             if 0 <= value <= 32766:
                 header.append((value + 1) * 2)
@@ -181,9 +181,9 @@ def build_verify_response(session, game_servers, state=0):
         (1, session),
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
         (3, "302#303"), # Recommended Europe servers
-        (5, "1.012.017"), # Match GameSettingData.GameVersion exactly
-        (6, "205"),       # Set ServerDataVersion > LocalDataVersion to trigger expansion download prompt
-        (7, 1),           # FORCE DOWNLOAD FLAG ON
+        (5, "1.012.017"), # versionCode: must match APK's GameVersion
+        (6, "205"),       # dataVersionCode: triggers the "Get Luxury Reward" prompt
+        (7, 1),           # downloadFlag: 1 = Show DownloadResRoot
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
     ])
@@ -226,13 +226,11 @@ def handle_message(msg, session, body=None):
         return build_verify_response(session, servers, 0)
 
     if msg == 4:
-        v_code = body.get(3, b"1.19").decode('utf-8') if isinstance(body.get(3), bytes) else str(body.get(3, "1.19"))
-        d_code = "200"
         return encode_sproto([
-            (0, 2),
-            (1, v_code),
-            (2, d_code),
-            (3, 1)
+            (0, 0), # type: 0
+            (1, "1.012.017"), # versionCode
+            (2, "205"),       # dataVersionCode
+            (3, 1)            # serverLevel
         ])
 
     if msg == 7:
