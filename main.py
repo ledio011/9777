@@ -183,7 +183,7 @@ def build_verify_response(session, game_servers, state=0):
         (3, "302#303"), # Recommended Europe servers
         (5, "1.012.017"), # versionCode: must match APK's GameVersion
         (6, "205"),       # dataVersionCode: triggers the "Get Luxury Reward" prompt
-        (7, 1),           # downloadFlag: 1 = Show DownloadResRoot
+        (7, 0),           # downloadFlag: 0 = Normal flow, no forced startup update
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
     ])
