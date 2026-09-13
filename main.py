@@ -4,6 +4,7 @@ import random
 import socket
 import struct
 import threading
+import time
 import traceback
 
 PORT = int(os.environ.get("PORT", 9777))
@@ -11,6 +12,9 @@ DB_FILE = "accounts.json"
 GAME_HOST = "s16.serv00.com"
 GAME_PORT = 15678
 
+# APK Source of Truth
+GAME_VERSION = "1.012.017"
+DATA_VERSION = "205"
 
 def load_accounts():
     if os.path.exists(DB_FILE):
@@ -21,7 +25,6 @@ def load_accounts():
             return {}
     return {}
 
-
 def save_accounts(accs):
     try:
         with open(DB_FILE, "w") as f:
@@ -29,9 +32,7 @@ def save_accounts(accs):
     except Exception:
         pass
 
-
 accounts = load_accounts()
-
 
 def encode_sproto(fields, fn=None):
     if not fields:
@@ -56,7 +57,10 @@ def encode_sproto(fields, fn=None):
                 header.append((value + 1) * 2)
             else:
                 header.append(0)
-                body += struct.pack("<I", 4) + struct.pack("<I", value & 0xFFFFFFFF)
+                if -2147483648 <= value <= 2147483647:
+                    body += struct.pack("<I", 4) + struct.pack("<i", value)
+                else:
+                    body += struct.pack("<I", 8) + struct.pack("<q", value)
         elif isinstance(value, str):
             header.append(0)
             payload = value.encode("utf-8")
@@ -80,7 +84,6 @@ def encode_sproto(fields, fn=None):
     for item in header:
         res += struct.pack("<H", item)
     return res + body
-
 
 def decode_sproto(data, offset=0):
     if len(data) < offset + 2:
@@ -106,7 +109,6 @@ def decode_sproto(data, offset=0):
             fields[curr_tag] = (v >> 1) - 1
     return fields
 
-
 def sproto_pack(data):
     out = bytearray()
     for i in range(0, len(data), 8):
@@ -127,7 +129,6 @@ def sproto_pack(data):
                 if mask & (1 << j):
                     out.append(chunk[j])
     return bytes(out)
-
 
 def sproto_unpack(data):
     out = bytearray()
@@ -153,179 +154,94 @@ def sproto_unpack(data):
                     out.append(0)
     return bytes(out)
 
-
 def build_game_server(server_id, name, host, port, area, timezone):
-    # Matches SprotoType.game_server (Tags 0-10) and ServerData table
+    # Matches SprotoType.game_server (Tags 0-10)
     return encode_sproto([
-        (0, server_id),   # serverId
-        (1, name),        # serverName
-        (2, host),        # serverIP
-        (3, port),        # serverPort
-        (4, 1),           # serverState: 1=Normal (Yellow in GameDefine.cs)
-        (5, -4),          # serverPlayerState: -4=Normal load
-        (6, area),        # serverArea: 1=Europe, 0=America, 2=Asia
-        (7, 1),           # serverRank
-        (8, timezone),    # serverTimeZone
-        (9, 1),           # serverWeight
-        (10, 0),          # newServer: 0=Old
+        (0, server_id), (1, name), (2, host), (3, port),
+        (4, 1), (5, -4), (6, area), (7, 1), (8, timezone), (9, 1), (10, 0),
     ])
-
-
-def build_visitor_response(uid, key, state=0):
-    return encode_sproto([(0, uid), (1, key), (2, state)])
-
 
 def build_verify_response(session, game_servers, state=0):
     return encode_sproto([
         (0, state),
         (1, session),
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
-        (3, "302#303"), # Recommended Europe servers
-        (5, "1.012.017"), # versionCode: must match APK's GameVersion
-        (6, "205"),       # dataVersionCode: triggers the "Get Luxury Reward" prompt
-        (7, 1),           # downloadFlag: 1 = Enable expansion download flow
-        (8, "Welcome to Auto Theft Revival!"),
+        (3, "302#303"),      # Recommended
+        (5, GAME_VERSION),   # versionCode
+        (6, DATA_VERSION),   # dataVersionCode
+        (7, 1),              # downloadFlag
+        (8, "Welcome back to Auto Theft Gangster!"),
         (9, "1"),
     ])
 
-
-def build_update_game_server_response(game_servers):
-    return encode_sproto([(2, [struct.pack("<I", len(s)) + s for s in game_servers])])
-
-
 def handle_message(msg, session, body=None):
-    if msg == 2:
+    if msg == 2: # visitor
         uid = "68" + "".join(str(random.randint(0, 9)) for _ in range(12))
         key = "".join(str(random.randint(0, 9)) for _ in range(12))
         accounts[uid] = key
         save_accounts(accounts)
-        return build_visitor_response(uid, key, 0)
+        return encode_sproto([(0, uid), (1, key), (2, 0)])
 
-    if msg == 3:
-        # Data from ServerData table
+    if msg == 3: # verify
         servers = [
-            # Europe (Area 1)
-            build_game_server(302, "EU-001(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
-            build_game_server(303, "EU-002(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
-            build_game_server(304, "EU-003(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
-            build_game_server(305, "EU-004(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
-            # Asia (Area 2)
-            build_game_server(602, "AS-001(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(603, "AS-002(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(604, "AS-003(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(605, "AS-004(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(606, "AS-005(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(607, "AS-006(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            # America (Area 0)
-            build_game_server(11, "AM-001(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
-            build_game_server(12, "AM-002(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
-            build_game_server(13, "AM-003(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
-            build_game_server(14, "AM-004(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
-            build_game_server(15, "AM-005(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
+            build_game_server(302, "Europe-1", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(303, "Europe-2", GAME_HOST, GAME_PORT, 1, 1),
+            build_game_server(602, "Asia-1", GAME_HOST, GAME_PORT, 2, 6),
+            build_game_server(11, "America-1", GAME_HOST, GAME_PORT, 0, -4),
         ]
         return build_verify_response(session, servers, 0)
 
-    if msg == 4:
+    if msg == 4: # login
         return encode_sproto([
-            (0, 2), # type: 2
-            (1, "1.012.017"), # versionCode
-            (2, "205"),       # dataVersionCode
-            (3, 1)            # serverLevel
+            (0, 2), (1, GAME_VERSION), (2, DATA_VERSION), (3, 1)
         ])
 
-    if msg == 7:
-        # Data from ServerData table
-        servers = [
-            # Europe (Area 1)
-            build_game_server(302, "EU-001(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
-            build_game_server(303, "EU-002(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
-            build_game_server(304, "EU-003(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
-            build_game_server(305, "EU-004(UTC+1)", GAME_HOST, GAME_PORT, 1, 1),
-            # Asia (Area 2)
-            build_game_server(602, "AS-001(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(603, "AS-002(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(604, "AS-003(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(605, "AS-004(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(606, "AS-005(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            build_game_server(607, "AS-006(UTC+6)", GAME_HOST, GAME_PORT, 2, 6),
-            # America (Area 0)
-            build_game_server(11, "AM-001(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
-            build_game_server(12, "AM-002(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
-            build_game_server(13, "AM-003(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
-            build_game_server(14, "AM-004(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
-            build_game_server(15, "AM-005(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
-        ]
-        return build_update_game_server_response(servers)
+    if msg == 7: # update_game_server
+        servers = [build_game_server(302, "Europe-1", GAME_HOST, GAME_PORT, 1, 1)]
+        return encode_sproto([(2, [struct.pack("<I", len(s)) + s for s in servers])])
 
-    if msg == 118:
-        names = ["John", "Mary", "William", "Smith", "Michael", "James", "David", "Chris", "Lisa", "Robert"]
-        name = f"{random.choice(names)}_{random.randint(100, 999)}"
-        return encode_sproto([(0, name)])
+    if msg == 118: # random_name
+        names = ["Hunter", "Shadow", "Rogue", "Cobra", "Titan", "Viper", "Outlaw", "Legend"]
+        return encode_sproto([(0, f"{random.choice(names)}_{random.randint(100, 999)}")])
 
-    if msg == 218:
-        t1 = body.get(0, 0)
+    if msg == 218: # heart_beat
+        t1 = body.get(0, 0) if body else 0
         return encode_sproto([(0, t1), (1, int(time.time()))])
 
     return encode_sproto([])
-
 
 def handle_http_request(conn, addr, initial_data):
     try:
         request_text = initial_data.decode("utf-8", "ignore")
         while "\r\n\r\n" not in request_text:
             chunk = conn.recv(1024)
-            if not chunk:
-                break
+            if not chunk: break
             request_text += chunk.decode("utf-8", "ignore")
         lines = request_text.split("\r\n")
-        if not lines:
-            return
+        if not lines: return
         path = lines[0].split(" ")[1].lstrip("/")
         
-        # Priority mapping for CDN files: search multiple locations to ensure bundles are found
         search_paths = [
             os.path.join("assets", "RES_200", path),
             os.path.join("assets", path),
             os.path.join("assets", "Bundle", path),
-            os.path.join("assets", "RES_200", "Bundle", path),
         ]
         
-        # If the path already has a versioned prefix (e.g. MMO_UNITY4_200), strip it and look in RES_200
-        if "_" in path.split("/")[0]:
-            parts = path.split("/", 1)
-            if len(parts) > 1:
-                search_paths.append(os.path.join("assets", "RES_200", parts[1]))
-                search_paths.append(os.path.join("assets", parts[1]))
-
         local_path = None
         for p in search_paths:
             p = p.replace("//", "/")
             if os.path.exists(p) and os.path.isfile(p):
-                local_path = p
-                break
-            
-        print(f"[HTTP] REQUEST: {lines[0].split(' ')[1]} -> FINAL_LOCAL: {local_path}")
+                local_path = p; break
         
         if local_path:
-            with open(local_path, "rb") as f:
-                content = f.read()
-            response = (b"HTTP/1.1 200 OK\r\n"
-                        b"Content-Length: " + str(len(content)).encode() + b"\r\n"
-                        b"Content-Type: application/octet-stream\r\n"
-                        b"Access-Control-Allow-Origin: *\r\n"
-                        b"Connection: close\r\n\r\n")
-            conn.sendall(response + content)
+            with open(local_path, "rb") as f: content = f.read()
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: " + str(len(content)).encode() + b"\r\n\r\n" + content)
         else:
-            print(f"[HTTP] 404 NOT FOUND: {lines[0].split(' ')[1]}")
             conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
-    except Exception:
-        pass
-    finally:
-        conn.close()
-
+    except Exception: pass
+    finally: conn.close()
 
 def client_handler(conn, addr):
-    print(f"[+] Login Connection from: {addr}")
     try:
         peek = conn.recv(4, socket.MSG_PEEK)
         if peek.startswith(b"GET "):
@@ -334,45 +250,33 @@ def client_handler(conn, addr):
 
         while True:
             h_bytes = conn.recv(2)
-            if not h_bytes:
-                break
+            if not h_bytes: break
             size = struct.unpack(">H", h_bytes)[0]
             data = b""
-            while len(data) < size:
-                data += conn.recv(size - len(data))
+            while len(data) < size: data += conn.recv(size - len(data))
 
             raw = sproto_unpack(data)
             pkg = decode_sproto(raw, 0)
-            msg = pkg.get(0)
-            session = pkg.get(1)
-            print(f"[RX] MSG {msg} Session {session} RawLen {len(raw)}")
+            msg, session = pkg.get(0), pkg.get(1)
+            
+            off = 2 + (struct.unpack("<H", raw[:2])[0] * 2)
+            response_body = handle_message(msg, session, decode_sproto(raw, off))
 
-            off = 2 + (struct.unpack("<H", raw[:2])[0] * 2); body = decode_sproto(raw, off)
-            response_body = handle_message(msg, session, body)
-            print("[TX BODY]", response_body.hex(), "LEN", len(response_body))
-
-            response = encode_sproto([
-                (1, session)
-            ]) + response_body
-
+            response = encode_sproto([(1, session)]) + response_body
             full = sproto_pack(response)
             conn.sendall(struct.pack(">H", len(full)) + full)
-    except Exception:
-        traceback.print_exc()
-    finally:
-        conn.close()
-
+    except Exception: pass
+    finally: conn.close()
 
 def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("0.0.0.0", PORT))
     server.listen(20)
-    print(f"ORIGINAL LOGIN SERVER READY ON {PORT}")
+    print(f"ATG LOGIN SERVER ON {PORT}")
     while True:
-        client, addr = server.accept()
-        threading.Thread(target=client_handler, args=(client, addr), daemon=True).start()
-
+        cl, ad = server.accept()
+        threading.Thread(target=client_handler, args=(cl, ad), daemon=True).start()
 
 if __name__ == "__main__":
     start_server()
