@@ -10,7 +10,7 @@ import traceback
 PORT = int(os.environ.get("PORT", 9777))
 DB_FILE = "accounts.json"
 GAME_HOST = "s16.serv00.com"
-GAME_PORT = 9555
+GAME_PORT = 15678
 
 # APK Source of Truth: GameSettingData.GameVersion = "1.012.017"
 # APK Source of Truth: DataVersion = "205"
