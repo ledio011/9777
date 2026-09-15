@@ -13,9 +13,9 @@ GAME_HOST = "s16.serv00.com"
 GAME_PORT = 15678
 
 # APK Source of Truth: GameSettingData.GameVersion = "1.012.017"
-# APK Source of Truth: DataVersion = "205"
+# APK Source of Truth: DataVersion = "200"
 GAME_VERSION = "1.012.017"
-DATA_VERSION = "205"
+DATA_VERSION = "200"
 
 def load_accounts():
     if os.path.exists(DB_FILE):
@@ -61,7 +61,10 @@ def encode_sproto(fields, fn=None):
                 header.append((value + 1) * 2)
             else:
                 header.append(0)
-                body += struct.pack("<I", 4) + struct.pack("<I", value & 0xFFFFFFFF)
+                if -2147483648 <= value <= 2147483647:
+                    body += struct.pack("<I", 4) + struct.pack("<i", value)
+                else:
+                    body += struct.pack("<I", 8) + struct.pack("<q", value)
         elif isinstance(value, str):
             header.append(0)
             payload = value.encode("utf-8")
@@ -186,8 +189,8 @@ def build_verify_response(session, game_servers, state=0):
         (1, session),
         (2, [struct.pack("<I", len(s)) + s for s in game_servers]),
         (3, "302#303"), # Recommended Europe servers
-        (5, "1.012.017"), # versionCode: must match APK's GameVersion
-        (6, "205"),       # dataVersionCode: triggers the "Get Luxury Reward" prompt
+        (5, GAME_VERSION), # versionCode: must match APK's GameVersion
+        (6, DATA_VERSION),       # dataVersionCode
         (7, 1),           # downloadFlag: 1 = Enable expansion download flow
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
@@ -233,8 +236,8 @@ def handle_message(msg, session, body=None):
     if msg == 4:
         return encode_sproto([
             (0, 2), # type: 2
-            (1, "1.012.017"), # versionCode
-            (2, "205"),       # dataVersionCode
+            (1, GAME_VERSION), # versionCode
+            (2, DATA_VERSION),       # dataVersionCode
             (3, 1)            # serverLevel
         ])
 
