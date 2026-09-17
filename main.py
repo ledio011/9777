@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import random
 import socket
@@ -280,6 +280,7 @@ def handle_message(msg, session, body=None):
 def handle_http_request(conn, addr, initial_data):
     try:
         request_text = initial_data.decode("utf-8", "ignore")
+        print(f"[HTTP RAW START] {request_text!r}")
         while "\r\n\r\n" not in request_text:
             chunk = conn.recv(1024)
             if not chunk:
@@ -289,6 +290,7 @@ def handle_http_request(conn, addr, initial_data):
         if not lines:
             return
         path = lines[0].split(" ")[1].lstrip("/")
+        print(f"[HTTP PATH] {path!r}")
 
         # Priority mapping for CDN files: search multiple locations to ensure bundles are found
         search_paths = [
@@ -354,8 +356,10 @@ def client_handler(conn, addr):
             msg = pkg.get(0)
             session = pkg.get(1)
             print(f"[RX] MSG {msg} Session {session} RawLen {len(raw)}")
+            print(f"[RX PKG] {pkg!r}")
 
             off = 2 + (struct.unpack("<H", raw[:2])[0] * 2); body = decode_sproto(raw, off)
+            print(f"[RX BODY DECODED] {body!r}")
             response_body = handle_message(msg, session, body)
             print("[TX BODY]", response_body.hex(), "LEN", len(response_body))
 
@@ -363,7 +367,9 @@ def client_handler(conn, addr):
                 (1, session)
             ]) + response_body
 
+            print(f"[TX PKG] {decode_sproto(response, 0)!r} RawLen {len(response)}")
             full = sproto_pack(response)
+            print(f"[TX FRAME] PackedLen {len(full)} FrameLen {len(full) + 2}")
             conn.sendall(struct.pack(">H", len(full)) + full)
     except Exception:
         traceback.print_exc()
@@ -384,3 +390,9 @@ def start_server():
 
 if __name__ == "__main__":
     start_server()
+
+
+
+
+
+
