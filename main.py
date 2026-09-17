@@ -15,7 +15,7 @@ GAME_PORT = 15678
 # APK Source of Truth: GameSettingData.GameVersion = "1.012.017"
 # APK Source of Truth: DataVersion = "200"
 GAME_VERSION = "1.012.017"
-DATA_VERSION = "200"
+DATA_VERSION = "205"
 
 def load_accounts():
     if os.path.exists(DB_FILE):
@@ -292,17 +292,17 @@ def handle_http_request(conn, addr, initial_data):
 
         # Priority mapping for CDN files: search multiple locations to ensure bundles are found
         search_paths = [
-            os.path.join("assets", "RES_200", path),
+            os.path.join("assets", "RES_205", path),
             os.path.join("assets", path),
             os.path.join("assets", "Bundle", path),
-            os.path.join("assets", "RES_200", "Bundle", path),
+            os.path.join("assets", "RES_205", "Bundle", path),
         ]
 
-        # If the path already has a versioned prefix (e.g. MMO_UNITY4_200), strip it and look in RES_200
+        # If the path already has a versioned prefix (e.g. MMO_UNITY4_205), strip it and look in RES_205
         if "_" in path.split("/")[0]:
             parts = path.split("/", 1)
             if len(parts) > 1:
-                search_paths.append(os.path.join("assets", "RES_200", parts[1]))
+                search_paths.append(os.path.join("assets", "RES_205", parts[1]))
                 search_paths.append(os.path.join("assets", parts[1]))
 
         local_path = None
