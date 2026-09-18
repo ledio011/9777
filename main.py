@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 import random
 import socket
@@ -15,7 +15,7 @@ GAME_PORT = 15678
 # APK Source of Truth: GameSettingData.GameVersion = "1.012.017"
 # APK Source of Truth: DataVersion = "200"
 GAME_VERSION = "1.012.017"
-DATA_VERSION = "205"
+DATA_VERSION = "200"
 
 def load_accounts():
     if os.path.exists(DB_FILE):
@@ -191,7 +191,9 @@ def build_verify_response(session, game_servers, state=0):
         (3, "302#303"), # Recommended Europe servers
         (5, GAME_VERSION), # versionCode: must match APK's GameVersion
         (6, DATA_VERSION),       # dataVersionCode
-        (7, 1),           # downloadFlag: 1 = Enable expansion download flow
+        # A nonzero download flag makes the client show the optional-resource
+        # download prompt immediately after selecting a game server.
+        (7, 0),           # downloadFlag: disabled
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
     ])
@@ -280,7 +282,6 @@ def handle_message(msg, session, body=None):
 def handle_http_request(conn, addr, initial_data):
     try:
         request_text = initial_data.decode("utf-8", "ignore")
-        print(f"[HTTP RAW START] {request_text!r}")
         while "\r\n\r\n" not in request_text:
             chunk = conn.recv(1024)
             if not chunk:
@@ -290,21 +291,20 @@ def handle_http_request(conn, addr, initial_data):
         if not lines:
             return
         path = lines[0].split(" ")[1].lstrip("/")
-        print(f"[HTTP PATH] {path!r}")
 
         # Priority mapping for CDN files: search multiple locations to ensure bundles are found
         search_paths = [
-            os.path.join("assets", "RES_205", path),
+            os.path.join("assets", "RES_200", path),
             os.path.join("assets", path),
             os.path.join("assets", "Bundle", path),
-            os.path.join("assets", "RES_205", "Bundle", path),
+            os.path.join("assets", "RES_200", "Bundle", path),
         ]
 
-        # If the path already has a versioned prefix (e.g. MMO_UNITY4_205), strip it and look in RES_205
+        # If the path already has a versioned prefix (e.g. MMO_UNITY4_200), strip it and look in RES_200
         if "_" in path.split("/")[0]:
             parts = path.split("/", 1)
             if len(parts) > 1:
-                search_paths.append(os.path.join("assets", "RES_205", parts[1]))
+                search_paths.append(os.path.join("assets", "RES_200", parts[1]))
                 search_paths.append(os.path.join("assets", parts[1]))
 
         local_path = None
@@ -356,10 +356,8 @@ def client_handler(conn, addr):
             msg = pkg.get(0)
             session = pkg.get(1)
             print(f"[RX] MSG {msg} Session {session} RawLen {len(raw)}")
-            print(f"[RX PKG] {pkg!r}")
 
             off = 2 + (struct.unpack("<H", raw[:2])[0] * 2); body = decode_sproto(raw, off)
-            print(f"[RX BODY DECODED] {body!r}")
             response_body = handle_message(msg, session, body)
             print("[TX BODY]", response_body.hex(), "LEN", len(response_body))
 
@@ -367,9 +365,7 @@ def client_handler(conn, addr):
                 (1, session)
             ]) + response_body
 
-            print(f"[TX PKG] {decode_sproto(response, 0)!r} RawLen {len(response)}")
             full = sproto_pack(response)
-            print(f"[TX FRAME] PackedLen {len(full)} FrameLen {len(full) + 2}")
             conn.sendall(struct.pack(">H", len(full)) + full)
     except Exception:
         traceback.print_exc()
@@ -390,9 +386,3 @@ def start_server():
 
 if __name__ == "__main__":
     start_server()
-
-
-
-
-
-
