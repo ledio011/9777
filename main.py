@@ -292,20 +292,10 @@ def handle_http_request(conn, addr, initial_data):
         path = lines[0].split(" ")[1].lstrip("/")
         print(f"[HTTP PATH] {path!r}")
 
-        # Priority mapping for CDN files: search multiple locations to ensure bundles are found
+        # Map incoming /RES_205/... requests cleanly to assets/RES_205/... in the repository
         search_paths = [
-            os.path.join("assets", "RES_205", path),
             os.path.join("assets", path),
-            os.path.join("assets", "Bundle", path),
-            os.path.join("assets", "RES_205", "Bundle", path),
         ]
-
-        # If the path already has a versioned prefix (e.g. MMO_UNITY4_205), strip it and look in RES_205
-        if "_" in path.split("/")[0]:
-            parts = path.split("/", 1)
-            if len(parts) > 1:
-                search_paths.append(os.path.join("assets", "RES_205", parts[1]))
-                search_paths.append(os.path.join("assets", parts[1]))
 
         local_path = None
         for p in search_paths:
@@ -321,9 +311,9 @@ def handle_http_request(conn, addr, initial_data):
                 content = f.read()
             response = (b"HTTP/1.1 200 OK\r\n"
                         b"Content-Length: " + str(len(content)).encode() + b"\r\n"
-                        b"Content-Type: application/octet-stream\r\n"
-                        b"Access-Control-Allow-Origin: *\r\n"
-                        b"Connection: close\r\n\r\n")
+                                                                           b"Content-Type: application/octet-stream\r\n"
+                                                                           b"Access-Control-Allow-Origin: *\r\n"
+                                                                           b"Connection: close\r\n\r\n")
             conn.sendall(response + content)
         else:
             print(f"[HTTP] 404 NOT FOUND: {lines[0].split(' ')[1]}")
@@ -390,8 +380,3 @@ def start_server():
 
 if __name__ == "__main__":
     start_server()
-
-
-
-
-
