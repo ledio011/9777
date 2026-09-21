@@ -191,7 +191,10 @@ def build_verify_response(session, game_servers, state=0):
         (3, "302#303"), # Recommended Europe servers
         (5, GAME_VERSION), # versionCode: must match APK's GameVersion
         (6, DATA_VERSION),       # dataVersionCode
-        (7, 1),           # downloadFlag: 1 = Enable expansion download flow
+        # The game server starts the optional-resource prompt after the player
+        # has entered the city.  Do not begin the full bundle update while the
+        # player is still on the login/server-selection screens.
+        (7, 0),           # downloadFlag: defer expansion download to 9555
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
     ])
