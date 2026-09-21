@@ -234,6 +234,7 @@ def handle_message(msg, session, body=None):
             build_game_server(14, "AM-004(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
             build_game_server(15, "AM-005(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
         ]
+        print("[VERIFY] Sending downloadFlag=0 (deferred city reward download)")
         return build_verify_response(session, servers, 0)
 
     if msg == 4:
