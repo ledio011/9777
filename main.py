@@ -191,12 +191,10 @@ def build_verify_response(session, game_servers, state=0):
         (3, "302#303"), # Recommended Europe servers
         (5, GAME_VERSION), # versionCode: must match APK's GameVersion
         (6, DATA_VERSION),       # dataVersionCode
-        # The game server starts the optional-resource prompt after the player
-        # has entered the city.  Do not begin the full bundle update while the
-        # player is still on the login/server-selection screens.
-        # Enable the APK's native optional-resource download flow.  Bundle
-        # files are now served by the HTTP endpoint in 9555 on port 15678.
-        (7, 1),           # downloadFlag: enable expansion download flow
+        # Do not download expansion bundles during login.  When the APK shows
+        # its city "Download / With New Car" tip, DownloadTipRootLogic.Reset()
+        # changes this flag to 1 and starts the same native flow from 9555.
+        (7, 0),           # downloadFlag: defer expansion download to city tip
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
     ])
