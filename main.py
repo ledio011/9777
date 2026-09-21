@@ -194,9 +194,9 @@ def build_verify_response(session, game_servers, state=0):
         # The game server starts the optional-resource prompt after the player
         # has entered the city.  Do not begin the full bundle update while the
         # player is still on the login/server-selection screens.
-        # Let 9555 trigger the APK's in-game download notification after the
-        # player enters the city; do not start it at server selection.
-        (7, 0),           # downloadFlag: defer expansion download to 9555
+        # Enable the APK's native optional-resource download flow.  Bundle
+        # files are now served by the HTTP endpoint in 9555 on port 15678.
+        (7, 1),           # downloadFlag: enable expansion download flow
         (8, "Welcome to Auto Theft Revival!"),
         (9, "1"),
     ])
