@@ -8,7 +8,10 @@ import time
 import traceback
 
 PORT = int(os.environ.get("PORT", 9777))
-DB_FILE = "accounts.json"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(SCRIPT_DIR, "accounts.json")
+BAK_DB_FILE = DB_FILE + ".bak"
+TMP_DB_FILE = DB_FILE + ".tmp"
 GAME_HOST = "s16.serv00.com"
 GAME_PORT = 15678
 
