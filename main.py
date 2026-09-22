@@ -17,20 +17,58 @@ GAME_PORT = 15678
 GAME_VERSION = "1.012.017"
 DATA_VERSION = "205"
 
+BAK_DB_FILE = DB_FILE + ".bak"
+TMP_DB_FILE = DB_FILE + ".tmp"
+
 def load_accounts():
+    """Crash-safe accounts loader with automatic backup recovery."""
     if os.path.exists(DB_FILE):
         try:
-            with open(DB_FILE, "r") as f:
-                return json.load(f)
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
         except Exception:
-            return {}
+            pass
+
+    if os.path.exists(BAK_DB_FILE):
+        try:
+            with open(BAK_DB_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    try:
+                        with open(DB_FILE, "w", encoding="utf-8") as out:
+                            json.dump(data, out, indent=4)
+                    except: pass
+                    return data
+        except Exception:
+            pass
+
     return {}
 
 
 def save_accounts(accs):
+    """Crash-safe atomic writer to prevent account data loss during kill -9."""
+    if not isinstance(accs, dict):
+        return
     try:
-        with open(DB_FILE, "w") as f:
+        # 1. Write to temporary file
+        with open(TMP_DB_FILE, "w", encoding="utf-8") as f:
             json.dump(accs, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
+
+        # 2. Backup current good database file
+        if os.path.exists(DB_FILE):
+            try:
+                with open(DB_FILE, "r", encoding="utf-8") as src, open(BAK_DB_FILE, "w", encoding="utf-8") as dst:
+                    dst.write(src.read())
+                    dst.flush()
+                    os.fsync(dst.fileno())
+            except: pass
+
+        # 3. Atomic rename
+        os.replace(TMP_DB_FILE, DB_FILE)
     except Exception:
         pass
 
