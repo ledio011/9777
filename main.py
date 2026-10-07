@@ -78,6 +78,9 @@ def save_accounts(accs):
 
 accounts = load_accounts()
 
+# Track random name requests per session to distinguish auto-call from button click
+random_name_requested = {}
+
 
 def encode_sproto(fields, fn=None):
     if not fields:
@@ -311,9 +314,36 @@ def handle_message(msg, session, body=None):
         return build_update_game_server_response(servers)
 
     if msg == 118:
-        names = ["John", "Mary", "William", "Smith", "Michael", "James", "David", "Chris", "Lisa", "Robert"]
-        name = f"{random.choice(names)}_{random.randint(100, 999)}"
-        return encode_sproto([(0, name)])
+        # First call is auto-triggered by profession switch (line 147 of CreateRoleRootLogic.cs)
+        # Subsequent calls are from the random name button click (line 162)
+        # Return empty name on first call, random name on button clicks
+        if session not in random_name_requested:
+            random_name_requested[session] = True
+            return encode_sproto([(0, "")])
+        else:
+            names = [
+                "Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Cameron", "Quinn", "Avery", "Reese",
+                "Blake", "Dakota", "Drew", "Emery", "Finley", "Harper", "Jamie", "Kendall", "Logan", "Peyton",
+                "Sage", "Skyler", "Toby", "Val", "Ari", "Charlie", "Dana", "Ellis", "Frankie", "Gray",
+                "Indigo", "Jules", "Kit", "Lane", "Marlow", "Nico", "Oakley", "Parker", "River", "Shiloh",
+                "Summer", "Topher", "Winter", "Zion", "Adam", "Brett", "Caleb", "Dylan", "Ethan", "Finn",
+                "Gavin", "Hunter", "Isaac", "Jake", "Kyle", "Liam", "Nathan", "Owen", "Patrick", "Quentin",
+                "Robert", "Sean", "Tyler", "Ulrich", "Vincent", "Wyatt", "Xander", "Yusuf", "Zach", "Aaron",
+                "Brandon", "Chase", "Devin", "Evan", "Gabriel", "Harrison", "Ian", "Jeremiah", "Kai", "Leo",
+                "Mason", "Noah", "Oliver", "Peter", "Quincy", "Rowan", "Samuel", "Theodore", "Ulysses", "Vance",
+                "Will", "Xavier", "Yael", "Zane", "Abigail", "Bella", "Clara", "Daisy", "Eliza", "Faith",
+                "Grace", "Hannah", "Isla", "Julia", "Katie", "Lily", "Monica", "Nora", "Opal", "Paige",
+                "Quinn", "Rachel", "Stella", "Tessa", "Uma", "Vera", "Willa", "Xena", "Yara", "Zara",
+                "Aria", "Brooke", "Cindy", "Diana", "Ella", "Fiona", "Gemma", "Holly", "Ivy", "Jade",
+                "Kira", "Luna", "Mia", "Nina", "Olivia", "Penny", "Ruby", "Sophie", "Tara", "Violet",
+                "Wendy", "Xia", "Yuki", "Zoe", "Alice", "Beth", "Cora", "Daphne", "Elena", "Freya",
+                "Gwen", "Hazel", "Iris", "Jasmine", "Karen", "Lena", "Maya", "Nell", "Olive", "Piper",
+                "Rose", "Sara", "Tina", "Vivian", "Wren", "Zelda", "Amy", "Blair", "Cleo", "Drew",
+                "Eve", "Faye", "Gina", "Hope", "Iona", "Jill", "Kara", "Lola", "Mona", "Nia",
+                "Ora", "Pam", "Rita", "Sue", "Tess", "Val", "Willa", "Xan", "Yvonne", "Zelda",
+            ]
+            name = f"{random.choice(names)}_{random.randint(100, 999)}"
+            return encode_sproto([(0, name)])
 
     if msg == 218:
         t1 = body.get(0, 0)
