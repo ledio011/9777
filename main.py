@@ -310,31 +310,6 @@ def handle_message(msg, session, body=None):
         ]
         return build_update_game_server_response(servers)
 
-    if msg == 118:
-        names = [
-            "Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Cameron", "Quinn", "Avery", "Reese",
-            "Blake", "Dakota", "Drew", "Emery", "Finley", "Harper", "Jamie", "Kendall", "Logan", "Peyton",
-            "Sage", "Skyler", "Toby", "Val", "Ari", "Charlie", "Dana", "Ellis", "Frankie", "Gray",
-            "Indigo", "Jules", "Kit", "Lane", "Marlow", "Nico", "Oakley", "Parker", "River", "Shiloh",
-            "Summer", "Topher", "Winter", "Zion", "Adam", "Brett", "Caleb", "Dylan", "Ethan", "Finn",
-            "Gavin", "Hunter", "Isaac", "Jake", "Kyle", "Liam", "Nathan", "Owen", "Patrick", "Quentin",
-            "Robert", "Sean", "Tyler", "Ulrich", "Vincent", "Wyatt", "Xander", "Yusuf", "Zach", "Aaron",
-            "Brandon", "Chase", "Devin", "Evan", "Gabriel", "Harrison", "Ian", "Jeremiah", "Kai", "Leo",
-            "Mason", "Noah", "Oliver", "Peter", "Quincy", "Rowan", "Samuel", "Theodore", "Ulysses", "Vance",
-            "Will", "Xavier", "Yael", "Zane", "Abigail", "Bella", "Clara", "Daisy", "Eliza", "Faith",
-            "Grace", "Hannah", "Isla", "Julia", "Katie", "Lily", "Monica", "Nora", "Opal", "Paige",
-            "Quinn", "Rachel", "Stella", "Tessa", "Uma", "Vera", "Willa", "Xena", "Yara", "Zara",
-            "Aria", "Brooke", "Cindy", "Diana", "Ella", "Fiona", "Gemma", "Holly", "Ivy", "Jade",
-            "Kira", "Luna", "Mia", "Nina", "Olivia", "Penny", "Ruby", "Sophie", "Tara", "Violet",
-            "Wendy", "Xia", "Yuki", "Zoe", "Alice", "Beth", "Cora", "Daphne", "Elena", "Freya",
-            "Gwen", "Hazel", "Iris", "Jasmine", "Karen", "Lena", "Maya", "Nell", "Olive", "Piper",
-            "Rose", "Sara", "Tina", "Vivian", "Wren", "Zelda", "Amy", "Blair", "Cleo", "Drew",
-            "Eve", "Faye", "Gina", "Hope", "Iona", "Jill", "Kara", "Lola", "Mona", "Nia",
-            "Ora", "Pam", "Rita", "Sue", "Tess", "Val", "Willa", "Xan", "Yvonne", "Zelda",
-        ]
-        name = f"{random.choice(names)}_{random.randint(100, 999)}"
-        return encode_sproto([(0, name)])
-
     if msg == 218:
         t1 = body.get(0, 0)
         return encode_sproto([(0, t1), (1, int(time.time()))])
