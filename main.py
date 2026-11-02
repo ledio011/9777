@@ -236,7 +236,12 @@ def build_verify_response(session, game_servers, state=0):
         # its city "Download / With New Car" tip, DownloadTipRootLogic.Reset()
         # changes this flag to 1 and starts the same native flow from 9555.
         (7, 0),           # downloadFlag: defer expansion download to city tip
-        (8, "Welcome to Auto Theft Revival!"),
+        (8,
+            "Welcome to Auto Theft Revival!\n"
+            "I am working so hard to bring the OG game back as it was before.\n"
+            "Currently, there are lots of bugs. To report bugs, please join our WhatsApp group below!\n"
+            "https://chat.whatsapp.com/FdTIW31DQjA0QvifT4r89x"
+        ),
         (9, "1"),
     ])
 
