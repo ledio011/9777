@@ -15,6 +15,15 @@ TMP_DB_FILE = DB_FILE + ".tmp"
 GAME_HOST = "s16.serv00.com"
 GAME_PORT = 15678
 
+# Set to True only when you need the detailed packet logs for debugging.
+DEBUG = False
+
+
+def log(*args):
+    if DEBUG:
+        print(*args)
+
+
 # APK Source of Truth: GameSettingData.GameVersion = "1.012.017"
 # APK Source of Truth: DataVersion = "200"
 GAME_VERSION = "1.012.017"
@@ -22,6 +31,13 @@ DATA_VERSION = "205"
 
 BAK_DB_FILE = DB_FILE + ".bak"
 TMP_DB_FILE = DB_FILE + ".tmp"
+
+# Asset folder: next to this script, falling back to ./assets (original behaviour).
+_script_assets = os.path.join(SCRIPT_DIR, "assets")
+ASSET_DIR = os.path.realpath(
+    _script_assets if os.path.isdir(_script_assets) else os.path.join(os.getcwd(), "assets")
+)
+
 
 def load_accounts():
     """Crash-safe accounts loader with automatic backup recovery."""
@@ -280,7 +296,7 @@ def handle_message(msg, session, body=None):
             build_game_server(14, "AM-004(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
             build_game_server(15, "AM-005(UTC-4)", GAME_HOST, GAME_PORT, 0, -4),
         ]
-        print("[VERIFY] Sending downloadFlag=0 (deferred city reward download)")
+        log("[VERIFY] Sending downloadFlag=0 (deferred city reward download)")
         return build_verify_response(session, servers, 0)
 
     if msg == 4:
@@ -322,10 +338,25 @@ def handle_message(msg, session, body=None):
     return encode_sproto([])
 
 
+def recv_exact(conn, n):
+    """Read exactly n bytes. Raises ConnectionError if the client disconnects.
+
+    FIX: the old loop kept calling recv() forever on a dead connection
+    (recv returns b"" when the peer is gone), spinning a thread at 100% CPU.
+    """
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = conn.recv(n - len(buf))
+        if not chunk:
+            raise ConnectionError("client closed")
+        buf += chunk
+    return bytes(buf)
+
+
 def handle_http_request(conn, addr, initial_data):
     try:
         request_text = initial_data.decode("utf-8", "ignore")
-        print(f"[HTTP RAW START] {request_text!r}")
+        log(f"[HTTP RAW START] {request_text!r}")
         while "\r\n\r\n" not in request_text:
             chunk = conn.recv(1024)
             if not chunk:
@@ -334,44 +365,52 @@ def handle_http_request(conn, addr, initial_data):
         lines = request_text.split("\r\n")
         if not lines:
             return
-        path = lines[0].split(" ")[1].lstrip("/")
-        print(f"[HTTP PATH] {path!r}")
+        raw_path = lines[0].split(" ")[1]
+        path = raw_path.split("?", 1)[0].lstrip("/")
+        log(f"[HTTP PATH] {path!r}")
 
-        # Map incoming /RES_205/... requests cleanly to assets/RES_205/... in the repository
-        search_paths = [
-            os.path.join("assets", path),
-        ]
-
+        # Map incoming /RES_205/... requests to assets/RES_205/...
+        # SECURITY: resolve the real path and make sure it stays inside the
+        # assets folder, so requests like /../accounts.json return 404.
+        candidate = os.path.realpath(os.path.join(ASSET_DIR, path))
         local_path = None
-        for p in search_paths:
-            p = p.replace("//", "/")
-            if os.path.exists(p) and os.path.isfile(p):
-                local_path = p
-                break
+        if candidate.startswith(ASSET_DIR + os.sep) and os.path.isfile(candidate):
+            local_path = candidate
 
-        print(f"[HTTP] REQUEST: {lines[0].split(' ')[1]} -> FINAL_LOCAL: {local_path}")
+        log(f"[HTTP] REQUEST: {raw_path} -> FINAL_LOCAL: {local_path}")
 
         if local_path:
+            size = os.path.getsize(local_path)
+            header = (b"HTTP/1.1 200 OK\r\n"
+                      b"Content-Length: " + str(size).encode() + b"\r\n"
+                      b"Content-Type: application/octet-stream\r\n"
+                      b"Access-Control-Allow-Origin: *\r\n"
+                      b"Connection: close\r\n\r\n")
+            conn.sendall(header)
+            # FIX: stream the file from disk in small pieces instead of
+            # loading the whole file into RAM for every download.
             with open(local_path, "rb") as f:
-                content = f.read()
-            response = (b"HTTP/1.1 200 OK\r\n"
-                        b"Content-Length: " + str(len(content)).encode() + b"\r\n"
-                                                                           b"Content-Type: application/octet-stream\r\n"
-                                                                           b"Access-Control-Allow-Origin: *\r\n"
-                                                                           b"Connection: close\r\n\r\n")
-            conn.sendall(response + content)
+                conn.sendfile(f)
         else:
-            print(f"[HTTP] 404 NOT FOUND: {lines[0].split(' ')[1]}")
-            conn.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
+            log(f"[HTTP] 404 NOT FOUND: {raw_path}")
+            conn.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
     except Exception:
         pass
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def client_handler(conn, addr):
-    print(f"[+] Login Connection from: {addr}")
+    log(f"[+] Login Connection from: {addr}")
     try:
+        try:
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except Exception:
+            pass
+
         peek = conn.recv(4, socket.MSG_PEEK)
         if peek.startswith(b"GET "):
             handle_http_request(conn, addr, b"")
@@ -381,35 +420,41 @@ def client_handler(conn, addr):
             h_bytes = conn.recv(2)
             if not h_bytes:
                 break
+            if len(h_bytes) < 2:
+                h_bytes += recv_exact(conn, 2 - len(h_bytes))
             size = struct.unpack(">H", h_bytes)[0]
-            data = b""
-            while len(data) < size:
-                data += conn.recv(size - len(data))
+            data = recv_exact(conn, size)
 
             raw = sproto_unpack(data)
             pkg = decode_sproto(raw, 0)
             msg = pkg.get(0)
             session = pkg.get(1)
-            print(f"[RX] MSG {msg} Session {session} RawLen {len(raw)}")
-            print(f"[RX PKG] {pkg!r}")
+            log(f"[RX] MSG {msg} Session {session} RawLen {len(raw)}")
+            log(f"[RX PKG] {pkg!r}")
 
             off = 2 + (struct.unpack("<H", raw[:2])[0] * 2); body = decode_sproto(raw, off)
-            print(f"[RX BODY DECODED] {body!r}")
+            log(f"[RX BODY DECODED] {body!r}")
             response_body = handle_message(msg, session, body)
-            print("[TX BODY]", response_body.hex(), "LEN", len(response_body))
+            log("[TX BODY]", response_body.hex(), "LEN", len(response_body))
 
             response = encode_sproto([
                 (1, session)
             ]) + response_body
 
-            print(f"[TX PKG] {decode_sproto(response, 0)!r} RawLen {len(response)}")
+            log(f"[TX PKG] {decode_sproto(response, 0)!r} RawLen {len(response)}")
             full = sproto_pack(response)
-            print(f"[TX FRAME] PackedLen {len(full)} FrameLen {len(full) + 2}")
+            log(f"[TX FRAME] PackedLen {len(full)} FrameLen {len(full) + 2}")
             conn.sendall(struct.pack(">H", len(full)) + full)
+    except ConnectionError:
+        # Normal: the player disconnected. Nothing to report.
+        pass
     except Exception:
         traceback.print_exc()
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def start_server():
