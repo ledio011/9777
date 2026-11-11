@@ -1,4 +1,5 @@
 import json
+import hmac
 import os
 import random
 import socket
@@ -268,6 +269,22 @@ def build_update_game_server_response(game_servers):
 
 def handle_message(msg, session, body=None):
     if msg == 2:
+        body = body if isinstance(body, dict) else {}
+        if 0 in body or 1 in body:
+            uid_value = body.get(0, "")
+            key_value = body.get(1, "")
+            uid = (uid_value.decode("utf-8", errors="replace")
+                   if isinstance(uid_value, (bytes, bytearray))
+                   else str(uid_value or ""))
+            key = (key_value.decode("utf-8", errors="replace")
+                   if isinstance(key_value, (bytes, bytearray))
+                   else str(key_value or ""))
+            stored_key = accounts.get(uid)
+            if (not uid or not key or not isinstance(stored_key, str)
+                    or not hmac.compare_digest(stored_key, key)):
+                return build_visitor_response("", "", 1)
+            return build_visitor_response(uid, stored_key, 0)
+
         uid = "68" + "".join(str(random.randint(0, 9)) for _ in range(12))
         key = "".join(str(random.randint(0, 9)) for _ in range(12))
         accounts[uid] = key
