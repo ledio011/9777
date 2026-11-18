@@ -12,9 +12,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(SCRIPT_DIR, "accounts.json")
 BAK_DB_FILE = DB_FILE + ".bak"
 TMP_DB_FILE = DB_FILE + ".tmp"
-GAME_HOST = "9555-1-production.up.railway.app"
-GAME_PORT = 9555
-
+GAME_HOST = "yamanote.proxy.rlwy.net"
+GAME_PORT = 15589
 # Set to True only when you need the detailed packet logs for debugging.
 DEBUG = False
 
