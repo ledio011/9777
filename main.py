@@ -13,9 +13,9 @@ import traceback
 
 PORT = int(os.environ.get("PORT", 9777))
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or SCRIPT_DIR
-if not os.path.isdir(DATA_DIR):
-    raise RuntimeError("Login database directory is unavailable: " + DATA_DIR)
+DATA_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+if not DATA_DIR or not os.path.isdir(DATA_DIR):
+    raise RuntimeError("Railway persistent volume is not mounted; refusing to use ephemeral login storage")
 DB_FILE = os.path.join(DATA_DIR, "accounts.json")
 BAK_DB_FILE = DB_FILE + ".bak"
 TMP_DB_FILE = DB_FILE + ".tmp"
