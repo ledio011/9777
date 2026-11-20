@@ -23,9 +23,11 @@ PRE_ENROLLMENT_FILE = os.path.join(DATA_DIR, "accounts.before-70-enrollment.json
 ENROLLMENT_MARKER = os.path.join(DATA_DIR, ".atg_70_account_enrollment_v1")
 ACCOUNTS_LOCK = threading.RLock()
 
-# Only these 70 account IDs from the 9555 character database may enroll or log in.
+# Only these 80 account IDs recovered from every 9555 database area may enroll or log in.
 ALLOWED_ACCOUNT_IDS = frozenset([
+    "68029248795025",
     "68036422723086",
+    "68050522115961",
     "68065111711314",
     "68080955736706",
     "68082237071307",
@@ -50,8 +52,10 @@ ALLOWED_ACCOUNT_IDS = frozenset([
     "68304562403105",
     "68325122511296",
     "68334920122444",
+    "68344302486065",
     "68352371283349",
     "68376197590752",
+    "68379567121328",
     "68382813238836",
     "68422808513960",
     "68424368685462",
@@ -70,10 +74,13 @@ ALLOWED_ACCOUNT_IDS = frozenset([
     "68527749146497",
     "68533004454188",
     "68536916532660",
+    "68557371818377",
     "68572434186569",
     "68592448352958",
     "68597224305636",
+    "68617517291724",
     "68635328054495",
+    "68640150929447",
     "68641933029249",
     "68656146706448",
     "68672373693424",
@@ -81,6 +88,7 @@ ALLOWED_ACCOUNT_IDS = frozenset([
     "68711147108578",
     "68735189274339",
     "68737966436823",
+    "68745727576409",
     "68768980668569",
     "68770507232255",
     "68775216362108",
@@ -93,8 +101,10 @@ ALLOWED_ACCOUNT_IDS = frozenset([
     "68868922919741",
     "68878288089498",
     "68914161619667",
+    "68921996837329",
     "68942919697081",
-    "68975852123482"
+    "68975852123482",
+    "68980236935421",
 ])
 GAME_HOST = os.environ.get("GAME_HOST", "yamanote.proxy.rlwy.net").strip()
 GAME_PORT = int(os.environ.get("GAME_PORT", "15589"))
@@ -164,7 +174,7 @@ def save_accounts(accs):
 
 
 def load_accounts():
-    """Initialize the fixed 70-account enrollment once, then load persistent data."""
+    """Initialize the fixed account enrollment once, then load persistent data."""
     os.makedirs(DATA_DIR, exist_ok=True)
 
     if not os.path.exists(ENROLLMENT_MARKER):
@@ -187,10 +197,10 @@ def load_accounts():
 
         initial = {uid: None for uid in sorted(ALLOWED_ACCOUNT_IDS)}
         if not _write_accounts_file(initial, keep_backup=False):
-            raise RuntimeError("Could not initialize the 70-account login database")
+            raise RuntimeError("Could not initialize the account login database")
         marker_tmp = ENROLLMENT_MARKER + ".tmp"
         with open(marker_tmp, "w", encoding="utf-8") as f:
-            f.write("70-account first-password enrollment initialized\n")
+            f.write("80-account first-password enrollment initialized\n")
             f.flush()
             os.fsync(f.fileno())
         os.replace(marker_tmp, ENROLLMENT_MARKER)
@@ -420,7 +430,7 @@ def build_update_game_server_response(game_servers):
 
 def handle_message(msg, session, body=None):
     if msg == 2:
-        # New visitor registrations are disabled: only the fixed 70 existing
+        # New visitor registrations are disabled: only the fixed 80 existing
         # game-account IDs are eligible for first-password enrollment.
         log("[REGISTER] rejected: visitor account creation is disabled")
         return build_visitor_response("", "", 1)
@@ -433,7 +443,7 @@ def handle_message(msg, session, body=None):
             account_id = account_id.decode("utf-8", errors="replace")
         if isinstance(account_key, (bytes, bytearray)):
             account_key = account_key.decode("utf-8", errors="replace")
-        # Reject every ID outside the exact 70-account allowlist. For an
+        # Reject every ID outside the exact 80-account allowlist. For an
         # allowed ID with no enrolled password, the first valid 12-digit
         # password is saved permanently. Later attempts must match it.
         if (account_id not in ALLOWED_ACCOUNT_IDS
