@@ -1,6 +1,10 @@
+import hashlib
+import hmac
 import json
 import os
 import random
+import secrets
+import shutil
 import socket
 import struct
 import threading
@@ -9,9 +13,16 @@ import traceback
 
 PORT = int(os.environ.get("PORT", 9777))
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE = os.path.join(SCRIPT_DIR, "accounts.json")
+DATA_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+if not DATA_DIR or not os.path.isdir(DATA_DIR):
+    raise RuntimeError("Railway persistent volume is not mounted; refusing to use ephemeral login storage")
+DB_FILE = os.path.join(DATA_DIR, "accounts.json")
 BAK_DB_FILE = DB_FILE + ".bak"
 TMP_DB_FILE = DB_FILE + ".tmp"
+PRE_ENROLLMENT_FILE = os.path.join(DATA_DIR, "accounts.before-70-enrollment.json")
+ENROLLMENT_MARKER = os.path.join(DATA_DIR, ".atg_70_account_enrollment_v1")
+ACCOUNTS_LOCK = threading.RLock()
+
 GAME_HOST = os.environ.get("GAME_HOST", "yamanote.proxy.rlwy.net").strip()
 GAME_PORT = int(os.environ.get("GAME_PORT", "15589"))
 
@@ -39,61 +50,154 @@ ASSET_DIR = os.path.realpath(
 )
 
 
-def load_accounts():
-    """Crash-safe accounts loader with automatic backup recovery."""
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-        except Exception:
-            pass
-
-    if os.path.exists(BAK_DB_FILE):
-        try:
-            with open(BAK_DB_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    try:
-                        with open(DB_FILE, "w", encoding="utf-8") as out:
-                            json.dump(data, out, indent=4)
-                    except: pass
-                    return data
-        except Exception:
-            pass
-
-    return {}
-
-
-def save_accounts(accs):
-    """Crash-safe atomic writer to prevent account data loss during kill -9."""
+def _write_accounts_file(accs, keep_backup=True):
+    """Write the login database atomically; return False if persistence fails."""
     if not isinstance(accs, dict):
-        return
+        return False
     try:
-        # 1. Write to temporary file
+        os.makedirs(DATA_DIR, exist_ok=True)
         with open(TMP_DB_FILE, "w", encoding="utf-8") as f:
             json.dump(accs, f, indent=4)
             f.flush()
             os.fsync(f.fileno())
 
-        # 2. Backup current good database file
-        if os.path.exists(DB_FILE):
-            try:
-                with open(DB_FILE, "r", encoding="utf-8") as src, open(BAK_DB_FILE, "w", encoding="utf-8") as dst:
-                    dst.write(src.read())
-                    dst.flush()
-                    os.fsync(dst.fileno())
-            except: pass
+        if keep_backup and os.path.exists(DB_FILE):
+            shutil.copy2(DB_FILE, BAK_DB_FILE)
 
-        # 3. Atomic rename
         os.replace(TMP_DB_FILE, DB_FILE)
-    except Exception:
-        pass
+        try:
+            dir_fd = os.open(DATA_DIR, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except Exception:
+            pass
+        return True
+    except Exception as exc:
+        print("[ACCOUNTS] database save failed:", repr(exc))
+        try:
+            if os.path.exists(TMP_DB_FILE):
+                os.remove(TMP_DB_FILE)
+        except Exception:
+            pass
+        return False
+
+
+def save_accounts(accs):
+    """Serialized atomic database writer."""
+    with ACCOUNTS_LOCK:
+        return _write_accounts_file(accs, keep_backup=True)
+
+
+def load_accounts():
+    """Load every saved account without a hard-coded account allowlist."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    legacy_main = os.path.join(SCRIPT_DIR, "accounts.json")
+    legacy_backup = legacy_main + ".bak"
+
+    # Preserve the old files once before changing the account-store behavior.
+    if not os.path.exists(ENROLLMENT_MARKER):
+        sources = [
+            (DB_FILE, PRE_ENROLLMENT_FILE),
+            (BAK_DB_FILE, PRE_ENROLLMENT_FILE + ".bak"),
+            (legacy_main, PRE_ENROLLMENT_FILE + ".legacy"),
+            (legacy_backup, PRE_ENROLLMENT_FILE + ".legacy.bak"),
+        ]
+        for source, destination in sources:
+            try:
+                if (os.path.isfile(source)
+                        and os.path.abspath(source) != os.path.abspath(destination)
+                        and not os.path.exists(destination)):
+                    shutil.copy2(source, destination)
+            except Exception as exc:
+                print("[ACCOUNTS] pre-enrollment backup warning:", repr(exc))
+
+    # Prefer the persistent primary database, then its backup, then legacy
+    # deployment-directory files. Merge missing accounts without overwriting
+    # a populated persistent credential with an older legacy value.
+    loaded_accounts = {}
+    primary_data = None
+    valid_database_found = False
+    candidates = (DB_FILE, BAK_DB_FILE, legacy_main, legacy_backup)
+
+    for candidate in candidates:
+        try:
+            with open(candidate, "r", encoding="utf-8") as account_file:
+                data = json.load(account_file)
+            if not isinstance(data, dict):
+                continue
+
+            valid_database_found = True
+            if candidate == DB_FILE:
+                primary_data = data
+
+            for account_id, credential in data.items():
+                if not isinstance(account_id, str) or not account_id:
+                    continue
+                previous = loaded_accounts.get(account_id)
+                if (account_id not in loaded_accounts
+                        or previous in (None, "") and credential not in (None, "")):
+                    loaded_accounts[account_id] = credential
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            print("[ACCOUNTS] database read/recovery warning:", candidate, repr(exc))
+
+    if not valid_database_found:
+        if os.path.exists(ENROLLMENT_MARKER):
+            raise RuntimeError(
+                "Login database and backup are unavailable; refusing to reset existing account credentials"
+            )
+        loaded_accounts = {}
+
+    # Keep the persistent primary file synchronized with recovered/merged data.
+    # Do not overwrite the existing backup during this startup recovery.
+    if primary_data != loaded_accounts:
+        if not _write_accounts_file(loaded_accounts, keep_backup=False):
+            raise RuntimeError("Could not restore the persistent account login database")
+
+    if not os.path.exists(ENROLLMENT_MARKER):
+        marker_tmp = ENROLLMENT_MARKER + ".tmp"
+        with open(marker_tmp, "w", encoding="utf-8") as marker_file:
+            marker_file.write("account database initialized without an account allowlist\n")
+            marker_file.flush()
+            os.fsync(marker_file.fileno())
+        os.replace(marker_tmp, ENROLLMENT_MARKER)
+        print("[ACCOUNTS] initialized unrestricted account database:", len(loaded_accounts))
+
+    return loaded_accounts
+
+
+def _hash_password(password):
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("ascii"), salt, 240000)
+    return {"scheme": "pbkdf2_sha256", "salt": salt.hex(), "hash": digest.hex()}
+
+
+def _password_matches(stored, candidate):
+    if isinstance(stored, dict) and stored.get("scheme") == "pbkdf2_sha256":
+        try:
+            salt = bytes.fromhex(stored["salt"])
+            expected = bytes.fromhex(stored["hash"])
+            actual = hashlib.pbkdf2_hmac("sha256", candidate.encode("ascii"), salt, 240000)
+            return hmac.compare_digest(actual, expected)
+        except Exception:
+            return False
+    if isinstance(stored, str):
+        return hmac.compare_digest(stored, candidate)
+    return False
+
+
+def _valid_new_password(value):
+    return (
+        isinstance(value, str)
+        and len(value) == 12
+        and all("0" <= char <= "9" for char in value)
+    )
 
 
 accounts = load_accounts()
-
 
 def encode_sproto(fields, fn=None):
     if not fields:
@@ -268,11 +372,36 @@ def build_update_game_server_response(game_servers):
 
 def handle_message(msg, session, body=None):
     if msg == 2:
-        uid = "68" + "".join(str(random.randint(0, 9)) for _ in range(12))
-        key = "".join(str(random.randint(0, 9)) for _ in range(12))
-        accounts[uid] = key
-        save_accounts(accounts)
-        return build_visitor_response(uid, key, 0)
+        # Register a new account and persist its credential before returning it.
+        with ACCOUNTS_LOCK:
+            account_id = None
+            for _ in range(100):
+                candidate = "68" + "".join(
+                    secrets.choice("0123456789") for _ in range(12)
+                )
+                if candidate not in accounts:
+                    account_id = candidate
+                    break
+
+            if account_id is None:
+                log("[REGISTER] could not generate a unique account ID")
+                return build_visitor_response("", "", 1)
+
+            account_key = "".join(
+                secrets.choice("0123456789") for _ in range(12)
+            )
+            updated_accounts = dict(accounts)
+            updated_accounts[account_id] = _hash_password(account_key)
+
+            if not save_accounts(updated_accounts):
+                log("[REGISTER] rejected: account database save failed")
+                return build_visitor_response("", "", 1)
+
+            accounts.clear()
+            accounts.update(updated_accounts)
+
+        log("[REGISTER] created and saved a new account")
+        return build_visitor_response(account_id, account_key, 0)
 
     if msg == 3:
         body = body or {}
@@ -282,11 +411,32 @@ def handle_message(msg, session, body=None):
             account_id = account_id.decode("utf-8", errors="replace")
         if isinstance(account_key, (bytes, bytearray)):
             account_key = account_key.decode("utf-8", errors="replace")
+
         if (not isinstance(account_id, str) or not account_id
-                or not isinstance(account_key, str) or not account_key
-                or accounts.get(account_id) != account_key):
+                or not _valid_new_password(account_key)):
             log("[VERIFY] rejected invalid credentials")
             return encode_sproto([(0, 1)])
+
+        with ACCOUNTS_LOCK:
+            if account_id not in accounts:
+                log("[VERIFY] rejected unknown account ID")
+                return encode_sproto([(0, 1)])
+
+            stored_password = accounts.get(account_id)
+            if stored_password is None or stored_password == "":
+                # Existing IDs imported from the game database can enroll
+                # their first password once. New IDs are created by msg == 2.
+                updated_accounts = dict(accounts)
+                updated_accounts[account_id] = _hash_password(account_key)
+                if not save_accounts(updated_accounts):
+                    log("[VERIFY] password enrollment failed: database save failed")
+                    return encode_sproto([(0, 1)])
+                accounts.clear()
+                accounts.update(updated_accounts)
+                log("[VERIFY] first password enrolled for an existing account")
+            elif not _password_matches(stored_password, account_key):
+                log("[VERIFY] rejected incorrect password")
+                return encode_sproto([(0, 1)])
 
         # Data from ServerData table
         servers = [
